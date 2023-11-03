@@ -1,0 +1,15 @@
+{
+    "files.associations": {
+        "daikinuart.h": "c",
+        "array": "cpp",
+        "*.tcc": "cpp",
+        "memory": "cpp",
+        "istream": "cpp",
+        "functional": "cpp",
+        "tuple": "cpp",
+        "utility": "cpp",
+        "string": "cpp",
+        "system_error": "cpp",
+        "cmath": "cpp"
+    }
+}

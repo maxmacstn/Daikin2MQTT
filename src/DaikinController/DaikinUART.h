@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <vector>
 #include "esp32-hal-log.h"
-#include <map>
+#include "logger.h"
 
 #define S21_BAUD_RATE 2400
 #define S21_SERIAL_CONFIG SERIAL_8E2
@@ -30,6 +30,7 @@
 
 #define SERIAL_TIMEOUT 250
 
+#define TAG "DKUART"
 
 struct ACResponse
 {

@@ -2,7 +2,6 @@
 
 
 
-static const char *const TAG = "daikin_s21";
 
 String getHEXformatted(uint8_t *bytes, size_t len)
 {
@@ -27,7 +26,7 @@ void DaikinUART::setSerial(HardwareSerial *hardwareSerial)
 
 bool DaikinUART::setup()
 {
-  Serial.println("Setting up DaikinUART");
+  Log.ln(TAG,"Setting up DaikinUART");
 
   if (_serial == nullptr)
     return false;
@@ -37,20 +36,20 @@ bool DaikinUART::setup()
 
 
   if ( testS21Protocol()){
-    Serial.println("S21 protocol detected");
+    Log.ln(TAG,"S21 protocol detected");
     protocol = PROTOCOL_S21;
     return true;
   }
 
   // if (testNewProtocol())
   // {
-  //   Serial.println("NEW protocol detected");
+  //   Log.ln(TAG,("NEW protocol detected");
   //   protocol = PROTOCOL_NEW;
   //   return true;
   // }
   
   else{
-    Serial.println("Protocol unknown");
+    Log.ln(TAG, "Protocol unknown");
     protocol = PROTOCOL_UNKNOWN;
     return false;
   }
@@ -109,123 +108,6 @@ bool DaikinUART::run_queries(String queries[], uint8_t size)
   return success; // True if all queries successful
 }
 
-void DaikinUART::update()
-{
-//   String queries[] = {"F1", "F5", "RH", "RI", "Ra", "RL", "Rd"};
-//   if (this->run_queries(queries, 7) && !this->ready)
-//   {
-//     Serial.printf("Daikin S21 Ready\n");
-//     this->ready = true;
-//   }
-//   if (this->debug_protocol)
-//   {
-//     this->dump_state();
-//   }
-
-// #ifdef S21_EXPERIMENTS
-//   ESP_LOGD(TAG, "** UNKNOWN QUERIES **");
-//   // auto experiments = {"F2", "F3", "F4", "F8", "F9", "F0", "FA", "FB", "FC",
-//   //                     "FD", "FE", "FF", "FG", "FH", "FI", "FJ", "FK", "FL",
-//   //                     "FM", "FN", "FO", "FP", "FQ", "FR", "FS", "FT", "FU",
-//   //                     "FV", "FW", "FX", "FY", "FZ"};
-//   // Observed BRP device querying these.
-//   std::vector<std::string> experiments = {"F2", "F3", "F4", "RN",
-//                                           "RX", "RD", "M", "FU0F"};
-//   this->run_queries(experiments);
-// #endif
-}
-
-// void DaikinS21::set_daikin_climate_settings(bool power_on,
-//                                             DaikinClimateMode mode,
-//                                             float setpoint,
-//                                             DaikinFanMode fan_mode) {
-//   // clang-format off
-//   std::vector<uint8_t> cmd = {
-//     (uint8_t)(power_on ? '1' : '0'),
-//     (uint8_t) mode,
-//     c10_to_setpoint_byte(lroundf(round(setpoint * 2) / 2 * 10.0)),
-//     (uint8_t) fan_mode
-//   };
-//   // clang-format on
-//   ESP_LOGD(TAG, "Sending basic climate CMD (D1): %s", str_repr(cmd).c_str());
-//   if (!this->send_cmd({'D', '1'}, cmd)) {
-//     ESP_LOGW(TAG, "Failed basic climate CMD");
-//   } else {
-//     this->update();
-//   }
-// }
-
-// void DaikinS21::set_swing_settings(bool swing_v, bool swing_h) {
-//   std::vector<uint8_t> cmd = {
-//       (uint8_t) ('0' + (swing_h ? 2 : 0) + (swing_v ? 1 : 0) +
-//                  (swing_h && swing_v ? 4 : 0)),
-//       (uint8_t) (swing_v || swing_h ? '?' : '0'), '0', '0'};
-//   ESP_LOGD(TAG, "Sending swing CMD (D5): %s", str_repr(cmd).c_str());
-//   if (!this->send_cmd({'D', '5'}, cmd)) {
-//     ESP_LOGW(TAG, "Failed swing CMD");
-//   } else {
-//     this->update();
-//   }
-// }
-
-// bool DaikinUART::send_cmd(std::vector<uint8_t> code,
-//                           std::vector<uint8_t> payload)
-// {
-//   uint8_t frame[256];
-//   uint8_t i = 0;
-
-//   for (auto b : code)
-//   {
-//     frame[i] = b;
-//     i++;
-//   }
-//   for (auto b : payload)
-//   {
-//     frame[i] = b;
-//     i++;
-//   }
-
-//   this->write_frame(frame, i);
-
-//   int byte;
-//   byte = _serial->read();
-
-//   if (byte == -1)
-//   {
-//     ESP_LOGW(TAG, "Timeout waiting for ACK to %s", String(frame, HEX));
-//     return false;
-//   }
-//   if (byte == NAK)
-//   {
-//     ESP_LOGW(TAG, "Got NAK for frame: %s", String(frame, HEX));
-//     return false;
-//   }
-//   if (byte != ACK)
-//   {
-//     ESP_LOGW(TAG, "Unexpected byte waiting for ACK: %x",
-//              byte);
-//     return false;
-//   }
-
-//   return true;
-// }
-
-
-// void DaikinUART::write_frame(uint8_t frame[], uint8_t size) {
-//   _serial->write(STX);
-//   _serial->write(frame,size);
-//   _serial->write(S21Checksum(frame, size));
-//   _serial->write(ETX);
-//   _serial->flush();
-
-//   Serial.print("Write_frame >>");
-//   Serial.printf("%x:",STX);
-//   Serial.print(getHEXformatted(frame,size));
-//   Serial.printf(":%x:",S21Checksum(frame, size));
-//   Serial.printf("%x\n",ETX);
-
-// }
-
 bool DaikinUART::sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLen, bool waitResponse)
 {
 
@@ -247,7 +129,7 @@ bool DaikinUART::sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
   len = 6 + payloadLen;
 
   // Send payload
-  Serial.printf("[NEW]Send Data >>%s\n", getHEXformatted(buf, len).c_str());
+  Log.ln(TAG,"NEW >> " + getHEXformatted(buf, len));
   _serial->write(buf, len);
 
   if (!waitResponse)
@@ -257,20 +139,24 @@ bool DaikinUART::sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
   uint8_t buf_in[256];
   uint8_t size_in = _serial->readBytes(buf, 256);
 
-  Serial.printf("[NEW]Received Data <<%s\n", getHEXformatted(buf_in, size_in).c_str());
+  Log.ln(TAG,"NEW << " + getHEXformatted(buf_in, size_in));
   bool responseOK = checkResponseNew(cmd, buf_in, size_in);
-  Serial.printf("Response %s\n", responseOK ? "YES" : "NO");
+  Log.ln(TAG,"Response "+ responseOK ? "YES" : "NO");
 
   return responseOK;
 }
 
 bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2)
 {
+    Log.ln(TAG, String("SendCommandS21 1"));
+  delay(100);
   return sendCommandS21(cmd1, cmd2, NULL, 0, true);
 }
 
 bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, uint8_t payloadLen, bool waitResponse)
 {
+  Log.ln(TAG, String("SendCommandS21 2"));
+  delay(100);
 
   uint8_t buf[256];
   uint8_t len;
@@ -280,13 +166,19 @@ bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, ui
   if (payloadLen)
     memcpy(buf + 3, payload, payloadLen);
 
+  Log.ln(TAG, String("SendCommandS21 3"));
+    delay(100);
+
   buf[3 + payloadLen] = S21Checksum(buf+1,  payloadLen+2);
   buf[4 + payloadLen] = ETX;
+
+  Log.ln(TAG, String("SendCommandS21 4"));
+    delay(100);
 
   len = S21_MIN_PKT_LEN + payloadLen;
 
   // Send payload
-  Serial.printf("[S21]Send Data     >>%s\n", getHEXformatted(buf, len).c_str());
+  Log.ln(TAG,"S21 >> " + getHEXformatted(buf, len));
   _serial->write(buf, len);
 
   if (!waitResponse)
@@ -314,14 +206,14 @@ bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, ui
       }
     }
     if(millis() - tStart > SERIAL_TIMEOUT){
-      Serial.println("Serial read timedout");
+      Log.ln(TAG,"Serial read timedout");
       break;
     }
   }
 
-  Serial.printf("[S21]Received Data <<%s\n", getHEXformatted(buf_in, size_in).c_str());
+  Log.ln(TAG,"S21 << " + getHEXformatted(buf_in, size_in));
   bool responseOK = (checkResponseS21(cmd1, cmd2, buf_in, size_in) == S21_OK);
-  // Serial.printf("Response %s\n", responseOK ? "YES" : "NO");
+  // LOGD_f(TAG,"Response %s\n", responseOK ? "YES" : "NO");
 
   if (responseOK){
     lastResponse.cmd1 = cmd1;
@@ -338,7 +230,7 @@ bool DaikinUART::checkResponseNew(uint8_t cmd, uint8_t *buf, uint8_t size)
 {
   if (size <= 0)
   {
-    Serial.println("checkResponseNew: Empty Response");
+    Log.ln(TAG,"checkResponseNew: Empty Response");
     return false;
   }
 
@@ -350,31 +242,31 @@ bool DaikinUART::checkResponseNew(uint8_t cmd, uint8_t *buf, uint8_t size)
   }
   if (checksum != 0xFF)
   {
-    Serial.println("checkResponseNew: Bad Checksum");
+    Log.ln(TAG,"checkResponseNew: Bad Checksum");
     return false;
   }
 
   // Process response
   if (buf[1] == 0xFF)
   {
-    Serial.println("checkResponseNew: Wrong byte 1");
+    Log.ln(TAG,"checkResponseNew: Wrong byte 1");
     return false;
   }
   if (size < 6 || buf[0] != 0x06 || buf[1] != cmd || buf[2] != size || buf[3] != 1)
   { // Basic checks
     if (buf[0] != 0x06)
-      Serial.println("checkResponseNew: Bad Header");
+      Log.ln(TAG,"checkResponseNew: Bad Header");
     if (buf[1] != cmd)
-      Serial.println("checkResponseNew: Received response mismatch sent command");
+      Log.ln(TAG,"checkResponseNew: Received response mismatch sent command");
     if (buf[2] != size || size < 6)
-      Serial.println("checkResponseNew: Bad size");
+      Log.ln(TAG,"checkResponseNew: Bad size");
     if (buf[3] != 1)
-      Serial.println("checkResponseNew: Bad form");
+      Log.ln(TAG,"checkResponseNew: Bad form");
     return false;
   }
   if (!buf[4]) // Loopback
   {
-    Serial.println("checkResponseNew: Loopback Detected");
+    Log.ln(TAG,"checkResponseNew: Loopback Detected");
     return false;
   }
 
@@ -391,7 +283,7 @@ int DaikinUART::checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buf, uint8
 
   if (size <= 0)
   {
-    Serial.println("checkResponseS21: Empty response");
+    Log.ln(TAG,"checkResponseS21: Empty response");
     connected = false;
     return S21_BAD;
   }
@@ -402,12 +294,12 @@ int DaikinUART::checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buf, uint8
     if (buf[idx] == NAK)
     {
       // Got an explicit NAK
-      Serial.println("checkResponseS21: Got explicted NAK");
-      connected = false;
+      Log.ln(TAG,"checkResponseS21: Got explicted NAK");
+      connected = true;   //HVAC is connected but does not understand the command
       return S21_NAK;
     }
 
-    Serial.println("checkResponseS21: Got unexpected data, protocol broken.");
+    Log.ln(TAG,"checkResponseS21: Got unexpected data, protocol broken.");
     connected = false;
     return S21_NOACK;
   }
@@ -433,7 +325,7 @@ int DaikinUART::checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buf, uint8
     if (!foundSTX)
     {
       connected = false;
-      Serial.println("checkResponseS21: Got no STX");
+      Log.ln(TAG,"checkResponseS21: Got no STX");
       return S21_NOACK;
     }
   }
@@ -455,7 +347,7 @@ int DaikinUART::checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buf, uint8
   if (!foundETX)
   {
     connected = false;
-    Serial.println("checkResponseS21: Got no ETX");
+    Log.ln(TAG,"checkResponseS21: Got no ETX");
     return S21_NOACK;
   }
   // Send confirm receive to AC
@@ -467,17 +359,17 @@ int DaikinUART::checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buf, uint8
   {
 
     connected = false;
-    Serial.println("checkResponseS21: Checksum Error");
+    Log.ln(TAG,"checkResponseS21: Checksum Error");
     return S21_BAD;
 
   }
   // An expected S21 reply contains the first character of the command
   // incremented by 1, the second character is left intact
-  // Serial.printf("%d %d %d %d %d\n", size < S21_MIN_PKT_LEN + 1 , buf[S21_STX_OFFSET + 1] != STX , buf[size - 1] != ETX , buf[S21_CMD1_OFFSET+1] != cmd1 + 1 , buf[S21_CMD2_OFFSET+1] != cmd2);
+  // LOGD_f(TAG,"%d %d %d %d %d\n", size < S21_MIN_PKT_LEN + 1 , buf[S21_STX_OFFSET + 1] != STX , buf[size - 1] != ETX , buf[S21_CMD1_OFFSET+1] != cmd1 + 1 , buf[S21_CMD2_OFFSET+1] != cmd2);
   if (size < S21_MIN_PKT_LEN + 1 || buf[S21_STX_OFFSET + 1] != STX || buf[size - 1] != ETX || buf[S21_CMD1_OFFSET+1] != cmd1 + 1 || buf[S21_CMD2_OFFSET+1] != cmd2)
   {
     connected = false;
-    Serial.println("checkResponseS21: Message Malformed");
+    Log.ln(TAG,"checkResponseS21: Message Malformed");
     return S21_BAD;
   }
 

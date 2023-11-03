@@ -104,13 +104,18 @@ String DaikinController::daikin_fan_mode_to_string(DaikinFanMode mode)
 
 bool DaikinController::sync()
 {
+
+  if (millis() - lastSyncMs < SYNC_INTEVAL){
+    return false;
+  }
+
   uint8_t size = sizeof(S21queryCmds) / sizeof(String);
   bool success = true;
 
   for (int i = 0; i < size; i++)
   {
 
-    Serial.printf("Send command: %s\n", S21queryCmds[i]);
+    Log.ln(TAG, "Send command: "+ S21queryCmds[i]);
     if (daikinUART->currentProtocol() == PROTOCOL_S21)
     {
       bool res = daikinUART->sendCommandS21(S21queryCmds[i][0], S21queryCmds[i][1]);
@@ -119,12 +124,13 @@ bool DaikinController::sync()
         ACResponse response = daikinUART->getResponse();
         parseResponse(&response);
       }
-      Serial.printf("Result: %s\n\n", res ? "Success" : "Failed");
+      // ("Result: %s\n\n", res ? "Success" : "Failed");
 
       success = success & res;
     }
   }
 
+  lastSyncMs = millis();
   return success;
 }
 
@@ -219,7 +225,8 @@ bool DaikinController::parseResponse(ACResponse *response)
         this->currentStatus.fanRPM = bytes_to_num(&payload[0], payloadSize) * 10;
         return true;
       case 'd': // Compressor state / frequency? Idle if 0.
-        this->currentStatus.operating = (payload[0] == '0' && payload[1] == '0' && payload[2] == '0');
+        this->currentStatus.operating = !(payload[0] == '0' && payload[1] == '0' && payload[2] == '0');
+        this->currentStatus.compressorFrequency = (payload[0] - '0') + (payload[1] - '0') * 10 + (payload[2] - '0') * 100;
         return true;
       default:
         if (payloadSize > 3)
@@ -237,79 +244,96 @@ bool DaikinController::parseResponse(ACResponse *response)
 
 bool DaikinController::readState()
 {
-  Serial.printf("** BEGIN STATE *****************************\n");
+  Log.ln(TAG,"** AC Status *****************************");
 
-  Serial.printf("  Power: %s\n", this->currentSettings.power);
-  Serial.printf("   Mode: %s (%s)\n", this->currentSettings.mode,
-                this->currentStatus.operating ? "idle" : "active");
+  Log.ln(TAG,"\tPower: " + String(this->currentSettings.power));
+  Log.ln(TAG,"\tMode: " + String(this->currentSettings.mode) + "("+ String(this->currentStatus.operating ? "active" : "idle") + ")");
   float degc = this->currentSettings.temperature;
   float degf = degc * 1.8 + 32.0;
-  Serial.printf(" Target: %.1f C (%.1f F)\n", degc, degf);
-  Serial.printf("    Fan: %s (%d rpm)\n",
-                this->currentSettings.fan, this->currentStatus.fanRPM);
-  Serial.printf("  Swing: H:%s V:%s\n", this->currentSettings.horizontalVane, this->currentSettings.verticalVane);
-  Serial.printf(" Inside: %.1f C \n", this->currentStatus.roomTemperature);
-  Serial.printf("Outside: %.1f C \n", this->currentStatus.outsideTemperature);
-  Serial.printf("   Coil: %.1f C \n", this->currentStatus.coilTemperature);
+  Log.ln(TAG,"\tTarget: "+ String(degc, 1));
+  Log.ln(TAG,"\tFan: " + String(this->currentSettings.fan) + " RPM:" +String(this->currentStatus.fanRPM));
+  Log.ln(TAG,"\tSwing: H:" + String(this->currentSettings.horizontalVane) + " V:"+ String(currentSettings.verticalVane));
+  Log.ln(TAG,"\tInside: " + String(this->currentStatus.roomTemperature,1));
+  Log.ln(TAG,"\tOutside: " + String(this->currentStatus.outsideTemperature,1));
+  Log.ln(TAG,"\tCoil: " + String(this->currentStatus.coilTemperature,1));
+  Log.ln(TAG,"\tCompressor Freq: " + String( this->currentStatus.compressorFrequency) + " Hz");
 
-  Serial.printf("** END STATE *****************************\n");
+  Log.ln(TAG,"******************************************\n");
 
   return true;
 }
 
-bool DaikinController::setBasic(HVACSettings settings)
+bool DaikinController::setBasic(HVACSettings *settings)
 {
-  newSettings = settings;
+  newSettings.power = settings->power;
+  newSettings.mode = settings->mode;
+  newSettings.fan = settings->fan;
+  newSettings.temperature = settings->temperature;
+  newSettings.verticalVane = settings->verticalVane;
+  newSettings.horizontalVane = settings->horizontalVane;
+  
+  // memcpy(&newSettings, &settings, sizeof(&newSettings));
+  // LOGD_f(TAG,"setting %s \n", settings->power);
   pendingSettings.basic = true;
   return true;
 }
 
-bool DaikinController::update()
+bool DaikinController::update(bool updateAll)
 {
   bool res = true;
   uint8_t payload[256];
 
   if (!daikinUART->isConnected())
   {
-    Serial.println("Reconnecting...");
+    Log.ln(TAG,"Reconnecting...");
     connect(this->_serial);
+  }if(!daikinUART->isConnected()){
+    Log.ln(TAG,"Connection Failed");
+    return false;
   }
 
   //COMMANDS for S21 Protocol
   if (daikinUART->currentProtocol() == PROTOCOL_S21)
   {
-    if (pendingSettings.basic)
+    // LOGD_f(TAG,"Set new setting %s %s %.2f %s %s %s \n", newSettings.power, newSettings.mode, newSettings.temperature, newSettings.fan, newSettings.verticalVane, newSettings.horizontalVane);
+
+    if (pendingSettings.basic || updateAll)
     {
       payload[0] = POWER[lookupByteMapIndex(POWER_MAP, 2, newSettings.power)];
       payload[1] = MODE[lookupByteMapIndex(MODE_MAP, 7, newSettings.mode)];
       payload[2] = c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
       payload[3] = FAN[lookupByteMapIndex(FAN_MAP, 6, newSettings.fan)];
-
+      
       std::vector<uint8_t> cmd = {
           (uint8_t)'0',
           (uint8_t)'3',
           c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
           (uint8_t)'2'};
 
-      // Serial.printf("Setting payload %x %x %x %x\n", cmd[0], cmd[1] ,cmd[2], cmd[3]);
+      // LOGD_f(TAG,"Setting payload %x %x %x %x\n", cmd[0], cmd[1] ,cmd[2], cmd[3]);
 
       res = daikinUART->sendCommandS21('D', '1', payload, 4) & res;
+      pendingSettings.basic = false;
     }
 
-    if (pendingSettings.vane)
+    if (pendingSettings.vane || updateAll)
     {
 
-      bool hVane = (HORIZONTALVANE_MAP[1] == newSettings.horizontalVane);
-      bool vVane = (VERTICALVANE_MAP[1] == newSettings.verticalVane);
+      bool hVane = strcmp(HORIZONTALVANE_MAP[1], newSettings.horizontalVane) == 0;
+      bool vVane = strcmp(VERTICALVANE_MAP[1] , newSettings.verticalVane) == 0;
+
+      // LOGD_f(TAG,"Swing state v:%d %s h:%d %s\n", vVane, newSettings.verticalVane , hVane , newSettings.horizontalVane);
 
       payload[0] = ('0' + (hVane ? 2 : 0) + (vVane ? 1 : 0) + (hVane && vVane ? 4 : 0));
-      payload[1] = (vVane || hVane ? '?' : '0'),
-      payload[2] = '0',
-      payload[3] = '0',
+      payload[1] = (vVane || hVane ? '?' : '0');
+      payload[2] = '0';
+      payload[3] = '0';
+
       res = daikinUART->sendCommandS21('D', '5', payload, 4) & res;
+      pendingSettings.vane = false;
     }
 
-    pendingSettings = {false, false};
+
   }
 
   else{
@@ -329,6 +353,14 @@ void DaikinController::setPowerSetting(bool setting)
   else
   {
     setPowerSetting(POWER_MAP[0]);
+  }
+}
+
+void DaikinController::togglePower(){
+  if (currentSettings.power == POWER_MAP[0]){
+      setPowerSetting(true);
+  }else{
+    setPowerSetting(false);
   }
 }
 
@@ -437,4 +469,12 @@ void DaikinController::setHorizontalVaneSetting(const char *setting)
     newSettings.horizontalVane = HORIZONTALVANE_MAP[0];
   }
   pendingSettings.vane = true;
+}
+
+void DaikinController::setSettingsChangedCallback(SETTINGS_CHANGED_CALLBACK_SIGNATURE) {
+  this->settingsChangedCallback = settingsChangedCallback;
+}
+
+void DaikinController::setStatusChangedCallback(STATUS_CHANGED_CALLBACK_SIGNATURE) {
+  this->statusChangedCallback = statusChangedCallback;
 }
