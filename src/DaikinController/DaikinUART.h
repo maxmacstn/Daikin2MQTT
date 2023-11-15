@@ -1,5 +1,6 @@
-#ifndef S21_H
-#define S21_H
+// #ifndef S21_H
+// #define S21_H
+#pragma once
 
 #include <Arduino.h>
 #include <vector>
@@ -30,7 +31,6 @@
 
 #define SERIAL_TIMEOUT 250
 
-#define TAG "DKUART"
 
 struct ACResponse
 {
@@ -53,6 +53,7 @@ enum
 const String S21queryCmds[] = {
   "F1", 
   "F5", 
+  // "F9",
   "RH", 
   "RI", 
   "Ra", 
@@ -99,4 +100,4 @@ private:
 
 };
 
-#endif
+// #endif

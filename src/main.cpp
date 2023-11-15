@@ -5,12 +5,12 @@
 #include <WebServer.h> // webServer for ESP32
 #include "SPIFFS.h"    // ESP32 SPIFFS for store config
 
-#include <ArduinoJson.h>      // json to process MQTT: ArduinoJson 6.11.4
-#include <PubSubClient.h>     // MQTT: PubSubClient 2.8.0
-#include <DNSServer.h>        // DNS for captive portal
-#include <math.h>             // for rounding to Fahrenheit values
+#include <ArduinoJson.h>                       // json to process MQTT: ArduinoJson 6.11.4
+#include <PubSubClient.h>                      // MQTT: PubSubClient 2.8.0
+#include <DNSServer.h>                         // DNS for captive portal
+#include <math.h>                              // for rounding to Fahrenheit values
 #include <DaikinController/DaikinController.h> //Main Daikin Controller
-#include <ArduinoOTA.h>       // for OTA
+#include <ArduinoOTA.h>                        // for OTA
 // #include <Ticker.h>     // for LED status (Using a Wemos D1-Mini)
 #include "config.h"            // config file
 #include "html_common.h"       // common code HTML (like header, footer)
@@ -25,49 +25,25 @@
 #define TAG "mainApp"
 
 // Languages
-#ifndef MY_LANGUAGE
 #include "languages/en-GB.h" // default language English
-#else
-#define QUOTEME(x) QUOTEME_1(x)
-#define QUOTEME_1(x) #x
-#define INCLUDE_FILE(x) QUOTEME(languages / x.h)
-#include INCLUDE_FILE(MY_LANGUAGE)
-#endif
 
-/* Multi Reset Detector*/
-#ifdef ESP8266
-#define ESP8266_MRD_USE_RTC false // true
-#endif
-
-#define ESP_MRD_USE_LITTLEFS false
-#define ESP_MRD_USE_SPIFFS false
-#define ESP_MRD_USE_EEPROM true
-
-// These definitions must be placed before #include <ESP_MultiResetDetector.h> to be used
-// Otherwise, default values (MRD_TIMES = 3, MRD_TIMEOUT = 10 seconds and MRD_ADDRESS = 0) will be used
-// Number of subsequent resets during MRD_TIMEOUT to activate
-#define MRD_TIMES 5 // Press reset button for 5 times
-
-// Number of seconds after reset during which a
-// subsequent reset will be considered a multi reset.
-#define MRD_TIMEOUT 10
-
-// RTC/EEPROM Memory Address for the MultiResetDetector to use
-#define MRD_ADDRESS 0
-
-MultiResetDetector *mrd;
-
-#define LED_ON 5
+#define LED_PWR 5
 #define LED_ACT 6
 #define BTN_1 0
 
-volatile unsigned long BTNPresedTime = 0; 
-enum btnAction {noPress, shortPress, longPress};
+// Set stack size to 16KB (8KB is likely to crash).
+SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB
+
+enum btnAction
+{
+  noPress,
+  shortPress,
+  longPress,
+  longLongPress
+};
+volatile unsigned long BTNPresedTime = 0;
+volatile bool btnPressed = false;
 uint8_t btnAction = noPress;
-
-
-// #define LED_OFF     LOW
-// #define LED_ON      HIGH
 
 // wifi, mqtt and heatpump client instances
 WiFiClient espClient;
@@ -75,7 +51,7 @@ PubSubClient mqtt_client(espClient);
 
 // Captive portal variables, only used for config page
 const byte DNS_PORT = 53;
-IPAddress apIP(192, 168, 1, 1);
+IPAddress apIP(8, 8, 8, 8);
 IPAddress netMsk(255, 255, 255, 0);
 DNSServer dnsServer;
 WebServer server(80);
@@ -102,8 +78,6 @@ int uploaderror = 0;
 // AC Serial
 HardwareSerial *acSerial(&Serial0);
 
-
-
 // Prototypes
 void wifiFactoryReset();
 // void testMode();
@@ -129,76 +103,74 @@ bool is_authenticated();
 String hpGetMode(HVACSettings hvacSettings);
 void hpStatusChanged(HVACStatus currentStatus);
 
-
-
-// Check multiple reset detector.
-void checkMRD()
+void testMode()
 {
-
-  mrd = new MultiResetDetector(MRD_TIMEOUT, MRD_ADDRESS);
-
-  if (mrd->detectMultiReset())
+  digitalWrite(LED_ACT, LOW);
+  Serial.println("TestMode");
+  for (int i = 0; i < 10; i++)
   {
-    wifiFactoryReset();
+    digitalWrite(LED_PWR, LOW);
+    delay(100);
+    digitalWrite(LED_PWR, HIGH);
+    delay(100);
+  }
+
+  SPIFFS.format();
+  Serial.println("format_done");
+
+  if (!ac.connect(acSerial))
+  {
+    while (1)
+    {
+      digitalWrite(LED_ACT, HIGH);
+      delay(100);
+      digitalWrite(LED_ACT, LOW);
+      delay(100);
+    }
+  }
+  digitalWrite(LED_ACT, HIGH);
+  ac.setModeSetting("FAN");
+  ac.setPowerSetting("ON");
+  ac.update();
+  delay(1000);
+  ac.setPowerSetting("OFF");
+  ac.update();
+
+  while (1)
+  {
+    digitalWrite(LED_ACT, millis() / 1000 % 2);
+    if (Serial.available())
+    {
+      String cmd = Serial.readStringUntil('\n');
+      if (cmd == "mac")
+      {
+        Serial.println("mac");
+        Serial.println(WiFi.macAddress());
+      }
+      if (cmd == "wlan")
+      {
+        int numberOfNetworks = WiFi.scanNetworks();
+        String wlan_list = "";
+        for (int i = 0; i < numberOfNetworks; i++)
+        {
+          wlan_list += WiFi.SSID(i) + "\t" + String(WiFi.RSSI(i)) + "\n";
+        }
+        Serial.println("wlan");
+        Serial.println(wlan_list);
+      }
+    }
   }
 }
 
-// void testMode(){
-//   for (int i = 0; i <5; i++){
-//     digitalWrite(blueLedPin, HIGH);
-//     delay(100);
-//     digitalWrite(blueLedPin, LOW);
-//     delay(100);
-//   }
-//   if (!ac.connect(&Serial)){
-//     while (1){
-//       digitalWrite(blueLedPin, HIGH);
-//       delay(100);
-//       digitalWrite(blueLedPin, LOW);
-//       delay(100);
-//     }
-//   }
-//   digitalWrite(blueLedPin, HIGH);
-//   ac.setModeSetting("FAN");
-//   ac.setPowerSetting("ON");
-//   ac.update();
-//   delay(1000);
-//   ac.setPowerSetting("OFF");
-//   ac.update();
-
-//   SPIFFS.format();
-
-//   Serial.println("format_done");
-
-//   while (1)
-//   {
-//     digitalWrite(blueLedPin, millis()/1000 % 2);
-//     if (Serial.available()){
-//       String cmd  = Serial.readStringUntil('\n');
-//       if (cmd == "mac"){
-//         Serial.println("mac");
-//         Serial.println(WiFi.macAddress());
-//       }
-//       if (cmd == "wlan"){
-//         int numberOfNetworks = WiFi.scanNetworks();
-//         String wlan_list = "";
-//         for(int i =0; i<numberOfNetworks; i++){
-//             wlan_list += WiFi.SSID(i) + "\t" + String(WiFi.RSSI(i)) + "\n";
-//         }
-//         Serial.println("wlan");
-//         Serial.println(wlan_list);
-//       }
-//     }
-//   }
-
-// }
-
 void wifiFactoryReset()
 {
+  Log.ln(TAG, "Factory reset");
   for (int i = 0; i < 20; i++)
   {
     digitalWrite(LED_ACT, HIGH);
+    digitalWrite(LED_PWR, HIGH);
     delay(100);
+    digitalWrite(LED_PWR, LOW);
     digitalWrite(LED_ACT, LOW);
     delay(100);
   }
@@ -223,7 +195,6 @@ String getHEXformatted2(uint8_t *bytes, size_t len)
   }
   return res;
 }
-
 
 bool loadWifi()
 {
@@ -393,33 +364,26 @@ void initMqtt()
 // Enable OTA only when connected as a client.
 void initOTA()
 {
-  // write_log("Start OTA Listener");
+  Log.ln(TAG, "Start OTA Listener");
   ArduinoOTA.setHostname(hostname.c_str());
   if (ota_pwd.length() > 0)
   {
     ArduinoOTA.setPassword(ota_pwd.c_str());
   }
   ArduinoOTA.onStart([]()
-                     {
-                       // write_log("Start");
-                     });
+                     { Log.ln(TAG, "OTA Start"); });
   ArduinoOTA.onEnd([]()
-                   {
-                     // write_log("\nEnd");
-                   });
+                   { Log.ln(TAG, "End"); });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
-                        {
-                          //    write_log("Progress: %u%%\r", (progress / (total / 100)));
-                        });
+                        { Log.ln(TAG, "Progress: %u%%\r", (progress / (total / 100))); });
   ArduinoOTA.onError([](ota_error_t error)
                      {
-                       //    write_log("Error[%u]: ", error);
-                       // if (error == OTA_AUTH_ERROR) Serial.println(F("Auth Failed"));
-                       // else if (error == OTA_BEGIN_ERROR) Serial.println(F("Begin Failed"));
-                       // else if (error == OTA_CONNECT_ERROR) Serial.println(F("Connect Failed"));
-                       // else if (error == OTA_RECEIVE_ERROR) Serial.println(F("Receive Failed"));
-                       // else if (error == OTA_END_ERROR) Serial.println(F("End Failed"));
-                     });
+                      Log.ln(TAG, "Error: " + String(error));
+                       if (error == OTA_AUTH_ERROR) Log.ln(TAG, "Auth Failed");
+                       else if (error == OTA_BEGIN_ERROR) Log.ln(TAG, "Begin Failed");
+                       else if (error == OTA_CONNECT_ERROR) Log.ln(TAG, "Connect Failed");
+                       else if (error == OTA_RECEIVE_ERROR) Log.ln(TAG, "Receive Failed");
+                       else if (error == OTA_END_ERROR) Log.ln(TAG, "End Failed"); });
   ArduinoOTA.begin();
 }
 
@@ -427,7 +391,7 @@ bool loadMqtt()
 {
   if (!SPIFFS.exists(mqtt_conf))
   {
-    Log.ln(TAG,"MQTT config file not exist!");
+    Log.ln(TAG, "MQTT config file not exist!");
     return false;
   }
   // write_log("Loading MQTT configuration");
@@ -596,12 +560,12 @@ boolean initWifi()
     }
   }
 
-  // Serial.println(F("\n\r \n\rStarting in AP mode"));
+  Log.ln(TAG, "Starting in AP mode");
   WiFi.mode(WIFI_AP);
   wifi_timeout = millis() + WIFI_RETRY_INTERVAL_MS;
   WiFi.persistent(false); // fix crash esp32 https://github.com/espressif/arduino-esp32/issues/2025
   WiFi.softAPConfig(apIP, apIP, netMsk);
-  if (!connectWifiSuccess and login_password != "")
+  if (!connectWifiSuccess && login_password != "")
   {
     // Set AP password when falling back to AP on fail
     WiFi.softAP(hostname.c_str(), login_password.c_str());
@@ -636,17 +600,8 @@ void handleNotFound()
 {
   if (captive)
   {
-    String initSetupContent = FPSTR(html_init_setup);
-    initSetupContent.replace("_TXT_INIT_TITLE_", FPSTR(txt_init_title));
-    initSetupContent.replace("_TXT_INIT_HOST_", FPSTR(txt_wifi_hostname));
-    initSetupContent.replace("_UNIT_NAME_", hostname);
-    initSetupContent.replace("_TXT_INIT_SSID_", FPSTR(txt_wifi_SSID));
-    initSetupContent.replace("_TXT_INIT_PSK_", FPSTR(txt_wifi_psk));
-    initSetupContent.replace("_TXT_INIT_OTA_", FPSTR(txt_wifi_otap));
-    initSetupContent.replace("_TXT_SAVE_", FPSTR(txt_save));
-    initSetupContent.replace("_TXT_REBOOT_", FPSTR(txt_reboot));
 
-    sendWrappedHTML(initSetupContent);
+    handleInitSetup();
   }
   else
   {
@@ -1013,13 +968,16 @@ void handleStatus()
   disconnected += FPSTR(txt_status_disconnect);
   disconnected += F("</b></span>");
 
-  if ((Serial) and ac.isConnected()){
+  if (ac.isConnected())
+  {
 
-    statusPage.replace(F("_HVAC_STATUS_"), connected );
-    statusPage.replace(F("_HVAC_PROTOCOL_"), (ac.daikinUART->currentProtocol() == PROTOCOL_S21)? "[S21]": "[NEW]");
+    statusPage.replace(F("_HVAC_STATUS_"), connected);
+    statusPage.replace(F("_HVAC_PROTOCOL_"), (ac.daikinUART->currentProtocol() == PROTOCOL_S21) ? "[S21]" : "[NEW]");
   }
-  else{
+  else
+  {
     statusPage.replace(F("_HVAC_STATUS_"), disconnected);
+    statusPage.replace(F("_HVAC_PROTOCOL_"), "");
   }
 
   if (mqtt_client.connected())
@@ -1223,7 +1181,7 @@ void handleLogin()
   }
   else
   {
-    if (is_authenticated() or login_password.length() == 0)
+    if (is_authenticated() || login_password.length() == 0)
     {
       server.sendHeader("Location", "/");
       server.sendHeader("Cache-Control", "no-cache");
@@ -1380,13 +1338,8 @@ void handleUploadLoop()
         return;
       }
       uint32_t bin_flash_size = ESP.magicFlashChipSize((upload.buf[3] & 0xf0) >> 4);
-#ifdef ESP32
       if (bin_flash_size > ESP.getFlashChipSize())
       {
-#else
-      if (bin_flash_size > ESP.getFlashChipRealSize())
-      {
-#endif
         // Serial.printl(PSTR("Upload: File flash size is larger than device flash size"));
         uploaderror = 4;
         return;
@@ -1440,7 +1393,6 @@ void handleLogging()
   othersPage.replace("_TXT_BACK_", FPSTR(txt_back));
 
   sendWrappedHTML(othersPage);
-  
 }
 
 void handleAPILogs()
@@ -1684,7 +1636,12 @@ void hpSendLocalState()
 
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
+
+  Log.ln(TAG, "MQTT CB");
+  Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+  delay(50);
   digitalWrite(LED_ACT, HIGH);
+  delay(100);
 
   // Copy payload into message buffer
   char message[length + 1];
@@ -1760,10 +1717,14 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       ac.setModeSetting(modeUpper.c_str());
     }
     ac.update();
-
   }
   else if (strcmp(topic, ha_temp_set_topic.c_str()) == 0)
   {
+
+    Log.ln(TAG, "got temp change");
+    Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+    delay(50);
+    delay(100);
     float temperature = strtof(message, NULL);
     float temperature_c = convertLocalUnitToCelsius(temperature, useFahrenheit);
     if (temperature_c < min_temp || temperature_c > max_temp)
@@ -1776,8 +1737,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       rootInfo["temperature"] = temperature;
     }
     hpSendLocalState();
+    Log.ln(TAG, "send local state done");
+    Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+    delay(50);
     ac.setTemperature(temperature_c);
+    Log.ln(TAG, "set temp done");
+    Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+    delay(50);
     ac.update();
+    Log.ln(TAG, "update done");
+    delay(50);
   }
   else if (strcmp(topic, ha_fan_set_topic.c_str()) == 0)
   {
@@ -1854,7 +1823,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     Log.ln(TAG, "Get response from  custom packet ");
     Log.ln(TAG, String(ac.daikinUART->getResponse().cmd1));
     Log.ln(TAG, String(ac.daikinUART->getResponse().cmd2));
-    Log.ln(TAG, String(getHEXformatted2(ac.daikinUART->getResponse().data,ac.daikinUART->getResponse().dataSize)));
+    Log.ln(TAG, String(getHEXformatted2(ac.daikinUART->getResponse().data, ac.daikinUART->getResponse().dataSize)));
   }
   else if (strcmp(topic, ha_custom_query_experimental.c_str()) == 0)
   {
@@ -1898,9 +1867,9 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
 
 void publishMQTTSensorConfig(const char *name, const char *id, const char *icon, const char *unit, const char *deviceClass, String stateTopic, String valueTemplate, String topic)
 {
-  // const size_t sensorConfigSize = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-  // DynamicJsonDocument haSensorConfig(sensorConfigSize);
-  StaticJsonDocument<1024> haSensorConfig;
+  const size_t sensorConfigSize = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
+  DynamicJsonDocument haSensorConfig(sensorConfigSize);
+  // StaticJsonDocument<1024> haSensorConfig;
   haSensorConfig["name"] = name;
   haSensorConfig["unique_id"] = getId() + id;
   haSensorConfig["icon"] = icon;
@@ -1925,8 +1894,6 @@ void publishMQTTSensorConfig(const char *name, const char *id, const char *icon,
   haConfigDevice["mf"] = "Daikin Industries";
   haConfigDevice["hw"] = hardware_version;
   haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
-
-
 
   String mqttOutput;
   serializeJson(haSensorConfig, mqttOutput);
@@ -1993,7 +1960,6 @@ void haConfig()
   String inside_fan_rpm_tpl_str = F("{{ value_json.fanRPM if (value_json is defined and value_json.fanRPM is defined ) else '0' }}"); // Set default value for fix "Could not parse data for HA"
   haClimateConfig["inside_fan_rpm_tpl"] = inside_fan_rpm_tpl_str;
 
-
   String comp_freq_tpl_str = F("{{ value_json.compressorFrequency if (value_json is defined and value_json.compressorFrequency is defined ) else '0' }}"); // Set default value for fix "Could not parse data for HA"
   haClimateConfig["comp_freq_tpl_str"] = comp_freq_tpl_str;
 
@@ -2048,9 +2014,9 @@ void haConfig()
   publishMQTTSensorConfig("Compressor Frequency", "_comp_freq", HA_sine_wave_icon, "Hz", NULL, ha_state_topic, comp_freq_tpl_str, ha_sensor_comp_freq_config_topic);
 
   // Vane vertical config
-  // const size_t capacityVaneVerticalConfig = JSON_ARRAY_SIZE(8) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-  // DynamicJsonDocument haVaneVerticalConfig(capacityVaneVerticalConfig);
-  StaticJsonDocument<1024> haVaneVerticalConfig;
+  const size_t capacityVaneVerticalConfig = JSON_ARRAY_SIZE(8) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
+  DynamicJsonDocument haVaneVerticalConfig(capacityVaneVerticalConfig);
+  // StaticJsonDocument<1024> haVaneVerticalConfig;
   haVaneVerticalConfig["name"] = "Vane Vertical";
   haVaneVerticalConfig["unique_id"] = getId() + "_vane_vertical";
   haVaneVerticalConfig["icon"] = HA_vane_vertical_icon;
@@ -2084,9 +2050,9 @@ void haConfig()
   mqtt_client.endPublish();
 
   // Vane horizontal config
-  // const size_t capacityVaneHorizontalConfig = JSON_ARRAY_SIZE(7) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-  // DynamicJsonDocument haVaneHorizontalConfig(capacityVaneHorizontalConfig);
-  StaticJsonDocument<1024> haVaneHorizontalConfig;
+  const size_t capacityVaneHorizontalConfig = JSON_ARRAY_SIZE(7) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
+  DynamicJsonDocument haVaneHorizontalConfig(capacityVaneHorizontalConfig);
+  // StaticJsonDocument<1024> haVaneHorizontalConfig;
   haVaneHorizontalConfig["name"] = "Vane Horizontal";
   haVaneHorizontalConfig["unique_id"] = getId() + "_vane_horizontal";
   haVaneHorizontalConfig["icon"] = HA_vane_horizontal_icon;
@@ -2274,10 +2240,10 @@ String getTemperatureScale()
 
 String getId()
 {
-  uint64_t macAddress = ESP.getEfuseMac();
-  uint64_t macAddressTrunc = macAddress << 40;
-  uint32_t chipID = macAddressTrunc >> 40;
-  return String(chipID, HEX);
+  String lastMac = WiFi.macAddress();
+  lastMac.remove(0,9);
+  lastMac.replace(":","");
+  return lastMac;
 }
 
 // Check if header is present and correct
@@ -2299,7 +2265,7 @@ bool is_authenticated()
 
 bool checkLogin()
 {
-  if (!is_authenticated() and login_password.length() > 0)
+  if (!is_authenticated() && login_password.length() > 0)
   {
     server.sendHeader("Location", "/login");
     server.sendHeader("Cache-Control", "no-cache");
@@ -2322,79 +2288,131 @@ void safeMode()
   Serial.begin(115200); // USB CDC
   delay(1000);
 
-  digitalWrite(LED_ACT,LOW);
+  digitalWrite(LED_ACT, LOW);
 
   Log.ln(TAG, "Safemode entered");
 
-  for (int i = 0; i < 120; i++){
-    digitalWrite(LED_ON, !digitalRead(LED_ON));
+  for (int i = 0; i < 60; i++)
+  {
+    digitalWrite(LED_PWR, !digitalRead(LED_PWR));
     delay(1000);
   }
   ESP.restart();
-
-
 }
 
+void handleButton()
+{
+  if (millis() > 10000)
+  {
+    switch (btnAction)
+    {
 
+    case (shortPress):
+      Log.ln(TAG, "Handle Short press");
+      if (ac.isConnected())
+      {
+        digitalWrite(LED_ACT, HIGH);
+        ac.togglePower();
+        ac.update();
+        digitalWrite(LED_ACT, LOW);
+      }
+      else
+      {
+        for (int i = 0; i < 4; i++)
+        {
+          digitalWrite(LED_ACT, HIGH);
+          delay(200);
+          digitalWrite(LED_ACT, LOW);
+          delay(200);
+        }
+      }
+      btnAction = noPress;
+      break;
 
-void IRAM_ATTR InterruptBTN() {
-  static bool pressed = false;
+    case (longPress):
+      Log.ln(TAG, "Handle Long press");
+      ESP.restart();
+      break;
+    
+    case (longLongPress):
+      Log.ln(TAG, "Handle Long Long press");
+      wifiFactoryReset();
+      btnAction = noPress;
+      break;
+    }
+  }
+}
 
-  pressed = !pressed;
+void IRAM_ATTR InterruptBTN()
+{
 
-  if(pressed){    
-    Log.ln(TAG,"Pressed");
+  if (millis() < 10000)
+  {
+    return;
+  }
+
+  btnPressed = !btnPressed;
+
+  if (btnPressed)
+  {
+    Log.ln(TAG, "Pressed");
     BTNPresedTime = millis();
     return;
-  }else{
-    Log.ln(TAG,"Released");
+  }
+  else
+  {
+    Log.ln(TAG, "Released");
     unsigned long pressedTime = millis() - BTNPresedTime;
     // digitalWrite(LED_ACT,0);
-    if (pressedTime > 50 && pressedTime < 500){
-        btnAction = shortPress;
+    if (pressedTime > 50 && pressedTime < 500)
+    {
+      btnAction = shortPress;
     }
-    else if (pressedTime > 5000){
-        btnAction = longPress;
-      }
-    else{
+    else if (pressedTime > 5000 && pressedTime < 10000)
+    {
+      btnAction = longPress;
+    }
+    else if (pressedTime > 5000)
+    {
+      btnAction = longLongPress;
+    }
+    else
+    {
       btnAction = noPress;
     }
-
-
   }
-  
 }
 
 void setup()
 {
   Serial.begin(115200); // USB CDC (Built-in)
   pinMode(LED_ACT, OUTPUT);
-  pinMode(LED_ON, OUTPUT);
+  pinMode(LED_PWR, OUTPUT);
   pinMode(BTN_1, INPUT);
 
   digitalWrite(LED_ACT, HIGH);
-  digitalWrite(LED_ON, HIGH);
+  digitalWrite(LED_PWR, HIGH);
   attachInterrupt(BTN_1, InterruptBTN, CHANGE);
-  
-  checkMRD();
-  delay(2000);
 
+  delay(3000);
 
-  mrd->stop();
-
-
+  if (!digitalRead(BTN_1))
+  {
+    testMode();
+  }
 
   Log.ln(TAG, "----Starting Daikin2MQTT----");
-  Log.ln(TAG, "FW Version: " + String(dk2mqtt_version));
-  Log.ln(TAG, "HW Version: " + String(hardware_version));
+  Log.ln(TAG, "FW Version:\t" + String(dk2mqtt_version));
+  Log.ln(TAG, "HW Version:\t" + String(hardware_version));
+  Log.ln(TAG, "ESP Chip Model:\t" + String(ESP.getChipModel()));
+  Log.ln(TAG, "ESP PSRam Size:\t" + String(ESP.getPsramSize()/1000 +"Kb"));
+  Log.ln(TAG, "MAC Address:\t" + WiFi.macAddress());
 
   if (esp_reset_reason() == ESP_RST_TASK_WDT)
   {
     esp_task_wdt_init(60, true);
     safeMode();
   }
-
-
 
   // Mount SPIFFS filesystem
   if (SPIFFS.begin())
@@ -2403,9 +2421,7 @@ void setup()
   else
   {
     SPIFFS.format();
-
   }
-
 
   // Define hostname
   hostname += hostnamePrefix;
@@ -2423,7 +2439,6 @@ void setup()
     {
       SPIFFS.remove(console_file);
     }
-    // write_log("Starting Daikin2MQTT");
     // Web interface
     server.on("/", handleRoot);
     server.on("/control", handleControl);
@@ -2435,8 +2450,15 @@ void setup()
     server.on("/others", handleOthers);
     server.on("/logging", handleLogging);
     server.on("/api/logs", handleAPILogs);
-    server.on("/init", handleInitSetup);    //for testing
+    server.on("/init", handleInitSetup); // for testing
     server.onNotFound(handleNotFound);
+
+    // Webportal Redirection https://github.com/HerrRiebmann/Caravan_Leveler/blob/main/Webserver.ino
+    server.on("/generate_204", handleInitSetup);        // Android captive portal.
+    server.on("/fwlink", handleInitSetup);              // Microsoft captive portal.
+    server.on("/connecttest.txt", handleInitSetup);     // www.msftconnecttest.com
+    server.on("/hotspot-detect.html", handleInitSetup); // captive.apple.com
+
     if (login_password.length() > 0)
     {
       server.on("/login", handleLogin);
@@ -2491,7 +2513,6 @@ void setup()
     {
       // write_log("Not found MQTT config go to configuration page");
     }
-    // Serial.println(F("Connection to HVAC. Stop serial log."));
     // write_log("Connection to HVAC");
     ac.setSettingsChangedCallback(hpSettingsChanged);
     ac.setStatusChangedCallback(hpStatusChanged);
@@ -2515,16 +2536,17 @@ void setup()
   }
   else
   {
+    dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
     dnsServer.start(DNS_PORT, "*", apIP);
     initCaptivePortal();
   }
   initOTA();
 
-  Serial.println("Setup completed");
+  Log.ln(TAG, "---Setup completed---");
 
   digitalWrite(LED_ACT, LOW);
-  
-  //Enable watchdog
+
+  // Enable watchdog
   esp_task_wdt_init(30, true);
   esp_task_wdt_add(NULL);
 }
@@ -2536,11 +2558,11 @@ void loop()
   esp_task_wdt_reset();
 
   // reset board to attempt to connect to wifi again if in ap mode or wifi dropped out and time limit passed
-  if (WiFi.getMode() == WIFI_STA and WiFi.status() == WL_CONNECTED)
+  if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED)
   {
     wifi_timeout = millis() + WIFI_RETRY_INTERVAL_MS;
   }
-  else if (wifi_config_exists and millis() > wifi_timeout)
+  else if (wifi_config_exists && millis() > wifi_timeout)
   {
     ESP.restart();
   }
@@ -2549,20 +2571,23 @@ void loop()
   {
     digitalWrite(LED_ACT, LOW);
     // Sync HVAC UNIT
-    if (!ac.isConnected())
+    if (!ac.isConnected()) // AC Not Connected
     {
+      digitalWrite(LED_ACT, HIGH);
       // Use exponential backoff for retries, where each retry is double the length of the previous one.
       unsigned long timeNextSync = (1 << hpConnectionRetries) * HP_RETRY_INTERVAL_MS + lastHpSync;
-      if (((millis() > timeNextSync) or lastHpSync == 0))
+      if (((millis() > timeNextSync) | lastHpSync == 0))
       {
         Log.ln(TAG, "Reconnect HVAC");
         lastHpSync = millis();
         // If we've retried more than the max number of tries, keep retrying at that fixed interval, which is several minutes.
         hpConnectionRetries = min(hpConnectionRetries + 1u, HP_MAX_RETRIES);
         hpConnectionTotalRetries++;
-        if(ac.connect(acSerial)){
+        if (ac.connect(acSerial))
+        {
           ac.sync();
         }
+        digitalWrite(LED_ACT, LOW);
       }
     }
     else
@@ -2574,6 +2599,7 @@ void loop()
         Log.ln(TAG, "PSRAM size:\t" + String(ESP.getPsramSize()));
         Log.ln(TAG, "PSRAM Free:\t" + String(ESP.getFreePsram()));
         Log.ln(TAG, "Heap left:\t" + String(esp_get_free_heap_size()));
+        Log.ln(TAG, "Free Stack Space:\t" + String(uxTaskGetStackHighWaterMark(NULL)));
       }
     }
 
@@ -2584,7 +2610,7 @@ void loop()
       {
         digitalWrite(LED_ACT, HIGH);
 
-        if ((millis() - lastMqttRetry > MQTT_RETRY_INTERVAL_MS) or lastMqttRetry == 0)
+        if ((millis() - lastMqttRetry > MQTT_RETRY_INTERVAL_MS) || lastMqttRetry == 0)
         {
           mqttConnect();
         }
@@ -2603,35 +2629,9 @@ void loop()
   }
   else
   {
-    digitalWrite(LED_ACT,HIGH);
+    digitalWrite(LED_ACT, HIGH);
     dnsServer.processNextRequest();
   }
 
-  //handleButton
-  switch(btnAction){
-    case(shortPress):
-      Log.ln(TAG,"BTN Short press");
-      if (ac.isConnected()){
-        digitalWrite(LED_ACT, HIGH);
-        ac.togglePower();
-        ac.update();
-        digitalWrite(LED_ACT, LOW);
-      }else{
-        for(int i = 0; i < 2; i++){
-          digitalWrite(LED_ACT, HIGH);
-          delay(200);
-          digitalWrite(LED_ACT, LOW);
-          delay(200);
-        }
-      }
-      btnAction = noPress;
-      break;
-
-    case(longPress):
-      Log.ln(TAG,"BTN Long press");
-      wifiFactoryReset();
-      btnAction = noPress;
-      break;
-
-  }
+  handleButton();
 }

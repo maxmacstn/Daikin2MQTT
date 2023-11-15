@@ -1,5 +1,8 @@
 #include "DaikinController.h"
 
+#define TAG "DKCtrl"
+
+
 const byte POWER[2] = {'0', '1'};
 const char *POWER_MAP[2] = {"OFF", "ON"};
 const byte MODE[7] = {'0', '1', '2', '3', '4', '6'};
@@ -207,6 +210,12 @@ bool DaikinController::parseResponse(ACResponse *response)
         this->currentSettings.horizontalVane = (payload[0] & 2) ? HORIZONTALVANE_MAP[1] : HORIZONTALVANE_MAP[0];
         newSettings = currentSettings; // we need current AC setting for future control.
         return true;
+      
+      case '9': // F9 -> G9 -- Temperature
+        this->currentStatus.roomTemperature = (float) ((signed) payload[0] - 0x80) / 2;
+        this->currentStatus.outsideTemperature = (float) ((signed) payload[1] - 0x80) / 2;
+        newSettings = currentSettings; // we need current AC setting for future control.
+        return true;
       }
       break;
     case 'S': // R -> S
@@ -240,6 +249,9 @@ bool DaikinController::parseResponse(ACResponse *response)
     Serial.println("Unknown response ");
     return false;
   }
+
+
+  return false;
 }
 
 bool DaikinController::readState()
@@ -283,35 +295,47 @@ bool DaikinController::update(bool updateAll)
   bool res = true;
   uint8_t payload[256];
 
-  if (!daikinUART->isConnected())
+  // if (!daikinUART->isConnected())
+  // {
+  //   Log.ln(TAG,"Reconnecting...");
+  //   connect(this->_serial);
+  // }if(!daikinUART->isConnected()){
+  //   Log.ln(TAG,"Connection Failed");
+  //   return false;
+  // }
+
+    if (!daikinUART->isConnected())
   {
-    Log.ln(TAG,"Reconnecting...");
-    connect(this->_serial);
-  }if(!daikinUART->isConnected()){
-    Log.ln(TAG,"Connection Failed");
+    Log.ln(TAG,"AC is not connected!");
     return false;
   }
+
 
   //COMMANDS for S21 Protocol
   if (daikinUART->currentProtocol() == PROTOCOL_S21)
   {
+
     // LOGD_f(TAG,"Set new setting %s %s %.2f %s %s %s \n", newSettings.power, newSettings.mode, newSettings.temperature, newSettings.fan, newSettings.verticalVane, newSettings.horizontalVane);
 
     if (pendingSettings.basic || updateAll)
     {
+
       payload[0] = POWER[lookupByteMapIndex(POWER_MAP, 2, newSettings.power)];
       payload[1] = MODE[lookupByteMapIndex(MODE_MAP, 7, newSettings.mode)];
       payload[2] = c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
       payload[3] = FAN[lookupByteMapIndex(FAN_MAP, 6, newSettings.fan)];
       
-      std::vector<uint8_t> cmd = {
-          (uint8_t)'0',
-          (uint8_t)'3',
-          c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
-          (uint8_t)'2'};
+      // std::vector<uint8_t> cmd = {
+      //     (uint8_t)'0',
+      //     (uint8_t)'3',
+      //     c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
+      //     (uint8_t)'2'};
 
       // LOGD_f(TAG,"Setting payload %x %x %x %x\n", cmd[0], cmd[1] ,cmd[2], cmd[3]);
 
+      // Log.ln(TAG, "sending command");
+      // Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+      // delay(50);
       res = daikinUART->sendCommandS21('D', '1', payload, 4) & res;
       pendingSettings.basic = false;
     }

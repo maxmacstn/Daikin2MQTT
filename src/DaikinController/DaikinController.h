@@ -1,12 +1,12 @@
-#ifndef DAIKIN_CONTROLLER_H
-#define DAIKIN_CONTROLLER_H
+// #ifndef DAIKIN_CONTROLLER_H
+// #define DAIKIN_CONTROLLER_H
+#pragma once
 
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include "DaikinUART.h"
 #include "logger.h"
  
-#define TAG "DKCtrl"
 
 #define STX 2
 #define ETX 3
@@ -15,7 +15,7 @@
 
 #define S21_RESPONSE_TIMEOUT 250
 
-#define SYNC_INTEVAL 15000
+#define SYNC_INTEVAL 10000
 
 #define S21_BAUD_RATE 2400
 #define S21_STOP_BITS 2
@@ -140,4 +140,4 @@ private:
   int lookupByteMapIndex(const int valuesMap[], int len, int lookupValue);
 };
 
-#endif
+// #endif

@@ -1,5 +1,6 @@
 #include "DaikinUART.h"
 
+#define TAG "DKUART"
 
 
 
@@ -148,15 +149,12 @@ bool DaikinUART::sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
 
 bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2)
 {
-    Log.ln(TAG, String("SendCommandS21 1"));
-  delay(100);
   return sendCommandS21(cmd1, cmd2, NULL, 0, true);
 }
 
 bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, uint8_t payloadLen, bool waitResponse)
 {
-  Log.ln(TAG, String("SendCommandS21 2"));
-  delay(100);
+
 
   uint8_t buf[256];
   uint8_t len;
@@ -166,14 +164,9 @@ bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, ui
   if (payloadLen)
     memcpy(buf + 3, payload, payloadLen);
 
-  Log.ln(TAG, String("SendCommandS21 3"));
-    delay(100);
-
   buf[3 + payloadLen] = S21Checksum(buf+1,  payloadLen+2);
   buf[4 + payloadLen] = ETX;
 
-  Log.ln(TAG, String("SendCommandS21 4"));
-    delay(100);
 
   len = S21_MIN_PKT_LEN + payloadLen;
 

@@ -19,11 +19,13 @@ const char html_init_setup[] PROGMEM = R"====(
 function check(){
     var friendlyName = document.getElementById('fn').value;
     if(/^[a-zA-Z0-9_-]+$/.test(friendlyName)){
+        document.getElementById("text_invalid_name").style.display = "none";
         document.initForm.submit();
        return true;
     }
     console.log('Invalid mqtt parameters');
     alert('Invalid MQTT friendly name. Alphabet(a-z), Underscore(_), or Dash (-) only.');
+    document.getElementById("text_invalid_name").style.display = "block";
     return false;
 }
 </script>
@@ -62,6 +64,7 @@ function check(){
             autocomplete='off' autocorrect='off' autocapitalize='off' spellcheck='false' 
             placeholder=' ' value='_MQTT_FN_'>
         </p>
+        <p id="text_invalid_name" style="color:red; display:none;">Invalid Name!</p>
         <p><b>_TXT_MQTT_HOST_</b>
             <br/>
             <input id='mh' name='mh' 

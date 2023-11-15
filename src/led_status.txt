@@ -1,0 +1,9 @@
+
+[Green LED]
+Solid ON:       Module is turned on and operating.
+Blinking 1s:    Safe Mode.
+
+[Blue LED]:
+Blink short:    Command in.
+Blinking 250ms: Connecting to Wi-Fi.
+Solid on:       MQTT or HVAC disconnected.

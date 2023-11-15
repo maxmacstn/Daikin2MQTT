@@ -49,7 +49,6 @@ void Logging:: f(const char* tag, char *format, ...){
     size += vsnprintf(&buff[size], 512, format, args);
 
     //log to serial (USB CDC)
-    Serial.printf("[%s:%08d]\t", tag, millis()/1000);
     for (int i =0 ;  i < size; i++){
         Serial.print(buff[i]);
     }

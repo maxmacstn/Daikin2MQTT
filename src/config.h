@@ -16,7 +16,7 @@
 
 //#define MY_LANGUAGE fr-FR // define your language
 
-const PROGMEM char* dk2mqtt_version = "0.1-alpha";
+const PROGMEM char* dk2mqtt_version = "1.0-beta.1";
 
 //Define global variables for files
 const PROGMEM char* wifi_conf = "/wifi.json";
@@ -26,7 +26,7 @@ const PROGMEM char* console_file = "/console.log";
 const PROGMEM char* others_conf = "/others.json";
 
 // Define global variables for network
-const PROGMEM char* hostnamePrefix = "WIFIKIT_DK_";
+const PROGMEM char* hostnamePrefix = "DAIKIN_";
 const PROGMEM uint32_t WIFI_RETRY_INTERVAL_MS = 300000;
 unsigned long wifi_timeout;
 bool wifi_config_exists;
@@ -98,8 +98,8 @@ String login_password;
 bool _debugMode = false;
 
 // sketch settings
-const PROGMEM uint32_t SEND_ROOM_TEMP_INTERVAL_MS = 20000; // 15 seconds (anything less than 45 seconds may cause problems, but it's faster.)
-const PROGMEM uint32_t POLL_DELAY_AFTER_SET_MS = 25000; // After send command, wait at least 35 seconds for A/C to update status.
+const PROGMEM uint32_t SEND_ROOM_TEMP_INTERVAL_MS = 15000; // send MQTT every 15 seconds
+const PROGMEM uint32_t POLL_DELAY_AFTER_SET_MS = 25000; // After send command, wait at least 25 seconds for A/C to update status.
 const PROGMEM uint32_t MQTT_RETRY_INTERVAL_MS = 1000; // 1 seconds
 const PROGMEM uint32_t HP_RETRY_INTERVAL_MS = 1000; // 1 seconds
 const PROGMEM uint32_t HP_MAX_RETRIES = 10; // Double the interval between retries up to this many times, then keep retrying forever at that maximum interval.
