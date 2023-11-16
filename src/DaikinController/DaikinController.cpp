@@ -201,8 +201,12 @@ bool DaikinController::parseResponse(ACResponse *response)
       case '1': // F1 -> Basic State
         this->currentSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, payload[0]);
         this->currentSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 7, payload[1]);
-        this->currentSettings.temperature = ((payload[2] - 28) * 5) / 10.0;
         this->currentSettings.fan = lookupByteMapValue(FAN_MAP, FAN, 6, payload[3]);
+        this->currentSettings.temperature = ((payload[2] - 28) * 5) / 10.0;
+        
+        if (this->currentSettings.temperature < 10 || this->currentSettings.temperature > 35){    //Set default value if HVAC does not have current setpoint Eg. After power outage.
+          this->currentSettings.temperature = 25;
+        }
         newSettings = currentSettings; // we need current AC setting for future control.
         return true;
       case '5': // F5 -> G5 -- Swing state
