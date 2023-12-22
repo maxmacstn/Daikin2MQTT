@@ -24,12 +24,6 @@
 
 #define TAG "mainApp"
 
-// Languages
-#include "languages/en-GB.h" // default language English
-
-#define LED_PWR 5
-#define LED_ACT 6
-#define BTN_1 0
 
 // Set stack size to 16KB (8KB is likely to crash).
 SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB
@@ -237,6 +231,34 @@ bool loadWifi()
     ota_pwd = "";
   }
   return true;
+}
+
+void beep(Buzzer_preset buzzer_p){
+  switch (buzzer_p)
+  {
+  case ON:
+    ledcWriteTone(0, BUZZER_FREQ);
+    delay(100);
+    ledcWriteTone(0, 0);
+    delay(100);
+    ledcWriteTone(0, BUZZER_FREQ);
+    delay(100);
+    ledcWriteTone(0, 0);
+    break;
+  
+  case OFF:
+    ledcWriteTone(0, BUZZER_FREQ);
+    delay(400);
+    ledcWriteTone(0, 0);
+    break;
+
+  case SET:
+    ledcWriteTone(0, BUZZER_FREQ);
+    delay(100);
+    ledcWriteTone(0, 0);
+  default:
+    break;
+  }
 }
 
 void saveMqtt(String mqttFn, String mqttHost, String mqttPort, String mqttUser,
@@ -1641,7 +1663,6 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
   Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
   delay(50);
   digitalWrite(LED_ACT, HIGH);
-  delay(100);
 
   // Copy payload into message buffer
   char message[length + 1];
@@ -1660,11 +1681,13 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     if (modeUpper == "OFF")
     {
       ac.setPowerSetting("OFF");
+      beep(OFF);
       ac.update();
     }
     else if (modeUpper == "ON")
     {
       ac.setPowerSetting("ON");
+      beep(ON);
       ac.update();
     }
   }
@@ -1677,10 +1700,12 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       rootInfo["mode"] = "off";
       rootInfo["action"] = "off";
       hpSendLocalState();
+      beep(OFF);
       ac.setPowerSetting("OFF");
     }
     else
     {
+      beep(ON);
       if (modeUpper == "HEAT_COOL")
       {
         rootInfo["mode"] = "heat_cool";
@@ -1737,22 +1762,25 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       rootInfo["temperature"] = temperature;
     }
     hpSendLocalState();
-    Log.ln(TAG, "send local state done");
-    Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
-    delay(50);
+    // Log.ln(TAG, "send local state done");
+    // Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+    // delay(50);
     ac.setTemperature(temperature_c);
-    Log.ln(TAG, "set temp done");
-    Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
-    delay(50);
+    // Log.ln(TAG, "set temp done");
+    // Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+    // delay(50);
+    beep(SET);
     ac.update();
-    Log.ln(TAG, "update done");
-    delay(50);
+    // Log.ln(TAG, "update done");
+    // delay(50);
   }
   else if (strcmp(topic, ha_fan_set_topic.c_str()) == 0)
   {
     rootInfo["fan"] = (String)message;
     hpSendLocalState();
+    beep(SET);
     ac.setFanSpeed(message);
+    beep(SET);
     ac.update();
   }
   else if (strcmp(topic, ha_vane_set_topic.c_str()) == 0)
@@ -1761,6 +1789,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     rootInfo["vane"] = (String)message;
     hpSendLocalState();
     ac.setVerticalVaneSetting(message);
+    beep(SET);
     ac.update();
   }
   else if (strcmp(topic, ha_wideVane_set_topic.c_str()) == 0)
@@ -1769,6 +1798,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     rootInfo["wideVane"] = (String)message;
     hpSendLocalState();
     ac.setHorizontalVaneSetting(message);
+    beep(SET);
     ac.update();
   }
   // else if (strcmp(topic, ha_remote_temp_set_topic.c_str()) == 0) {
@@ -1811,6 +1841,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     }
 
     Log.ln(TAG, "Send custom packet");
+    beep(SET);
     bool res = false;
     if (byteCount == 2)
     {
@@ -2383,12 +2414,15 @@ void IRAM_ATTR InterruptBTN()
   }
 }
 
+
+
 void setup()
 {
   Serial.begin(115200); // USB CDC (Built-in)
   pinMode(LED_ACT, OUTPUT);
   pinMode(LED_PWR, OUTPUT);
   pinMode(BTN_1, INPUT);
+  ledcAttachPin(BUZZER, 0);
 
   digitalWrite(LED_ACT, HIGH);
   digitalWrite(LED_PWR, HIGH);
@@ -2405,7 +2439,7 @@ void setup()
   Log.ln(TAG, "FW Version:\t" + String(dk2mqtt_version));
   Log.ln(TAG, "HW Version:\t" + String(hardware_version));
   Log.ln(TAG, "ESP Chip Model:\t" + String(ESP.getChipModel()));
-  Log.ln(TAG, "ESP PSRam Size:\t" + String(ESP.getPsramSize()/1000 +"Kb"));
+  Log.ln(TAG, "ESP PSRam Size:\t" + String(ESP.getPsramSize()/1000)+" Kb");
   Log.ln(TAG, "MAC Address:\t" + WiFi.macAddress());
 
   if (esp_reset_reason() == ESP_RST_TASK_WDT)
@@ -2549,6 +2583,9 @@ void setup()
   // Enable watchdog
   esp_task_wdt_init(30, true);
   esp_task_wdt_add(NULL);
+
+  beep(SET);
+
 }
 
 void loop()

@@ -117,3 +117,20 @@ uint32_t update_int                 = SEND_ROOM_TEMP_INTERVAL_MS;
 bool useFahrenheit = false;
 // support heat mode settings, some model do not support heat mode
 bool supportHeatMode = false;
+
+
+// Languages
+#include "languages/en-GB.h" // default language English
+
+//IOs
+#define LED_PWR 5
+#define LED_ACT 6
+#define BTN_1 0
+#define BUZZER 14
+#define BUZZER_FREQ 4000
+
+enum Buzzer_preset{
+  ON,
+  SET,
+  OFF
+};
