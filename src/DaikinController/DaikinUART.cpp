@@ -32,22 +32,32 @@ bool DaikinUART::setup()
   if (_serial == nullptr)
     return false;
 
-  _serial->begin(S21_BAUD_RATE, SERIAL_8E2);
-  _serial->setTimeout(SERIAL_TIMEOUT);
+  if (protocol != PROTOCOL_UNKNOWN){
+    Log.ln(TAG,"Protocol already found, reconnecting..");
 
+    if (protocol == PROTOCOL_S21){
+      return testS21Protocol();
+    }else if (protocol == PROTOCOL_X50){
+      return testX50Protocol();
+    }
 
-  if ( testS21Protocol()){
-    Log.ln(TAG,"S21 protocol detected");
-    protocol = PROTOCOL_S21;
-    return true;
   }
 
-  // if (testNewProtocol())
-  // {
-  //   Log.ln(TAG,("NEW protocol detected");
-  //   protocol = PROTOCOL_NEW;
+
+  // if ( testS21Protocol()){
+  //   Log.ln(TAG,"S21 protocol detected");
+  //   protocol = PROTOCOL_S21;
   //   return true;
   // }
+  
+  // delay(2000);
+
+  if (testX50Protocol())
+  {
+    Log.ln(TAG,"X50 protocol detected");
+    protocol = PROTOCOL_X50;
+    return true;
+  }
   
   else{
     Log.ln(TAG, "Protocol unknown");
@@ -56,17 +66,21 @@ bool DaikinUART::setup()
   }
 }
 
-bool DaikinUART::testNewProtocol()
+bool DaikinUART::testX50Protocol()
 {
+  _serial->begin(X50_BAUD_RATE, X50_SERIAL_CONFIG);
+  _serial->setTimeout(SERIAL_TIMEOUT);
+
   bool res = true;
   uint8_t testData[] = {0x01};
-  res = sendCommandNew(0xAA, testData, 1);
-  res = sendCommandNew(0xBA, NULL, 0);
-  res = sendCommandNew(0xBB, NULL, 0);
+  res = sendCommandX50(0xAA, testData, 1);
+  res = sendCommandX50(0xBA, NULL, 0);
   return res;
 }
 
 bool DaikinUART::testS21Protocol(){
+  _serial->begin(S21_BAUD_RATE, S21_SERIAL_CONFIG);
+  _serial->setTimeout(SERIAL_TIMEOUT);
   return sendCommandS21('F','1');
 }
 
@@ -79,6 +93,17 @@ uint8_t DaikinUART::S21Checksum(uint8_t *bytes, uint8_t len)
     checksum += bytes[i];
   }
   return checksum;
+}
+
+uint8_t DaikinUART::X50Checksum(uint8_t *bytes, uint8_t len)
+{
+  uint8_t checksum = 0;
+  for (int i = 0; i < len; i++)
+  {
+      checksum += bytes[i];
+  }
+  
+  return 0xFF - checksum;
 }
 
 
@@ -109,7 +134,7 @@ bool DaikinUART::run_queries(String queries[], uint8_t size)
   return success; // True if all queries successful
 }
 
-bool DaikinUART::sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLen, bool waitResponse)
+bool DaikinUART::sendCommandX50(uint8_t cmd, uint8_t *payload, uint8_t payloadLen, bool waitResponse)
 {
 
   uint8_t buf[256];
@@ -120,17 +145,22 @@ bool DaikinUART::sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
   buf[2] = payloadLen + 6;
   buf[3] = 1;
   buf[4] = 0;
+  
+  //Add payload
   if (payloadLen)
     memcpy(buf + 5, payload, payloadLen);
+  
+  //Calculate checksum
   uint8_t c = 0;
   for (int i = 0; i < 5 + payloadLen; i++)
     c += buf[i];
   buf[5 + payloadLen] = 0xFF - c;
+  // buf[5+payloadLen] = X50Checksum(buf, 5 + payloadLen);
 
   len = 6 + payloadLen;
 
   // Send payload
-  Log.ln(TAG,"NEW >> " + getHEXformatted(buf, len));
+  Log.ln(TAG,"X50 >> " + getHEXformatted(buf, len));
   _serial->write(buf, len);
 
   if (!waitResponse)
@@ -138,11 +168,21 @@ bool DaikinUART::sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
 
   // Read incoming payload
   uint8_t buf_in[256];
-  uint8_t size_in = _serial->readBytes(buf, 256);
+  uint8_t size_in = _serial->readBytes(buf_in, 256);
 
-  Log.ln(TAG,"NEW << " + getHEXformatted(buf_in, size_in));
-  bool responseOK = checkResponseNew(cmd, buf_in, size_in);
-  Log.ln(TAG,"Response "+ responseOK ? "YES" : "NO");
+
+
+  Log.ln(TAG,"X50 << " + getHEXformatted(buf_in, size_in));
+  bool responseOK = checkResponseX50(cmd, buf_in, size_in);
+  // Log.ln(TAG,"Response "+ responseOK ? "YES" : "NO");
+
+
+  if (responseOK){
+    connected = true;
+    lastResponse.cmd1 = cmd;
+    lastResponse.dataSize = size_in - 6; 
+    memcpy(lastResponse.data, buf_in + 5, size_in - 6);   //Store according to Faikin
+  }
 
   return responseOK;
 }
@@ -219,11 +259,11 @@ bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, ui
 }
 
 // Check integrety of the new protocol
-bool DaikinUART::checkResponseNew(uint8_t cmd, uint8_t *buf, uint8_t size)
+bool DaikinUART::checkResponseX50(uint8_t cmd, uint8_t *buf, uint8_t size)
 {
   if (size <= 0)
   {
-    Log.ln(TAG,"checkResponseNew: Empty Response");
+    Log.ln(TAG,"checkResponseX50: Empty Response");
     return false;
   }
 
@@ -235,26 +275,26 @@ bool DaikinUART::checkResponseNew(uint8_t cmd, uint8_t *buf, uint8_t size)
   }
   if (checksum != 0xFF)
   {
-    Log.ln(TAG,"checkResponseNew: Bad Checksum");
+    Log.ln(TAG,"checkResponseX50: Bad Checksum");
     return false;
   }
 
   // Process response
   if (buf[1] == 0xFF)
   {
-    Log.ln(TAG,"checkResponseNew: Wrong byte 1");
+    Log.ln(TAG,"checkResponseX50: Wrong byte 1");
     return false;
   }
   if (size < 6 || buf[0] != 0x06 || buf[1] != cmd || buf[2] != size || buf[3] != 1)
   { // Basic checks
     if (buf[0] != 0x06)
-      Log.ln(TAG,"checkResponseNew: Bad Header");
+      Log.ln(TAG,"checkResponseX50: Bad Header");
     if (buf[1] != cmd)
-      Log.ln(TAG,"checkResponseNew: Received response mismatch sent command");
+      Log.ln(TAG,"checkResponseX50: Received response mismatch sent command");
     if (buf[2] != size || size < 6)
-      Log.ln(TAG,"checkResponseNew: Bad size");
+      Log.ln(TAG,"checkResponseX50: Bad size");
     if (buf[3] != 1)
-      Log.ln(TAG,"checkResponseNew: Bad form");
+      Log.ln(TAG,"checkResponseX50: Bad form");
     return false;
   }
   if (!buf[4]) // Loopback
@@ -262,6 +302,7 @@ bool DaikinUART::checkResponseNew(uint8_t cmd, uint8_t *buf, uint8_t size)
     Log.ln(TAG,"checkResponseNew: Loopback Detected");
     return false;
   }
+
 
   return true;
 }

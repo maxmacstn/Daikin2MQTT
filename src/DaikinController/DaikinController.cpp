@@ -2,18 +2,29 @@
 
 #define TAG "DKCtrl"
 
+const byte S21_POWER[2] = {'0', '1'};         // Byte value
+const char *S21_POWER_MAP[2] = {"OFF", "ON"}; // Actual value
 
-const byte POWER[2] = {'0', '1'};
-const char *POWER_MAP[2] = {"OFF", "ON"};
-const byte MODE[7] = {'0', '1', '2', '3', '4', '6'};
-const char *MODE_MAP[7] = {"DISABLED", "AUTO", "DRY", "COOL", "HEAT", "FAN"};
-// const byte TEMP[16]            = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
-// const int TEMP_MAP[16]         = {31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16};
-const byte FAN[6] = {'A', '3', '4', '5', '6', '7'};
-const char *FAN_MAP[6] = {"AUTO", "1", "2", "3", "4", "5"};
+const byte X50_POWER[2] = {0, 1};         // Byte value
+const char *X50_POWER_MAP[2] = {"OFF", "ON"}; // Actual value
+
+const byte S21_MODE[7] = {'0', '1', '2', '3', '4', '6'};
+const char *S21_MODE_MAP[7] = {"DISABLED", "AUTO", "DRY", "COOL", "HEAT", "FAN"};
+
+const byte X50_MODE[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+const char *X50_MODE_MAP[8] = {"FAN", "HEAT", "COOL", "AUTO", "4", "5", "6", "DRY"};
+//{"fan_only", "heat", "cool", "auto", "4", "5", "6", "dry"}
+
+const byte S21_FAN[6] = {'A', '3', '4', '5', '6', '7'};
+const char *S21_FAN_MAP[6] = {"AUTO", "1", "2", "3", "4", "5"};
+
+const byte X50_FAN[7] = {0, 1, 2, 3, 4, 5, 6};
+const char *X50_FAN_MAP[7] = {"AUTO", "1", "2", "3", "4", "5", "AUTO"};
+// {"auto", "1", "2", "3", "4", "5", "night"}
 
 const byte VERTICALVANE[2] = {'0', '1'};
 const char *VERTICALVANE_MAP[2] = {"HOLD", "SWING"};
+
 const byte HORIZONTALVANE[2] = {'0', '1'};
 const char *HORIZONTALVANE_MAP[2] = {"HOLD", "SWING"};
 
@@ -107,31 +118,81 @@ String DaikinController::daikin_fan_mode_to_string(DaikinFanMode mode)
 
 bool DaikinController::sync()
 {
+  bool success = true;
+  bool res = false;
 
-  if (millis() - lastSyncMs < SYNC_INTEVAL){
+  if (millis() - lastSyncMs < SYNC_INTEVAL)
+  {
     return false;
   }
 
-  uint8_t size = sizeof(S21queryCmds) / sizeof(String);
-  bool success = true;
 
-  for (int i = 0; i < size; i++)
-  {
-
-    Log.ln(TAG, "Send command: "+ S21queryCmds[i]);
-    if (daikinUART->currentProtocol() == PROTOCOL_S21)
+  if (daikinUART->currentProtocol() == PROTOCOL_S21)
     {
-      bool res = daikinUART->sendCommandS21(S21queryCmds[i][0], S21queryCmds[i][1]);
-      if (res)
-      {
-        ACResponse response = daikinUART->getResponse();
-        parseResponse(&response);
-      }
-      // ("Result: %s\n\n", res ? "Success" : "Failed");
 
-      success = success & res;
+    uint8_t size = sizeof(S21queryCmds) / sizeof(String);
+
+    for (int i = 0; i < size; i++)
+    {
+
+      Log.ln(TAG, "Send command: " + S21queryCmds[i]);
+    
+
+        res = daikinUART->sendCommandS21(S21queryCmds[i][0], S21queryCmds[i][1]);
+        if (res)
+        {
+          ACResponse response = daikinUART->getResponse();
+          parseResponse(&response);
+        }
+        // ("Result: %s\n\n", res ? "Success" : "Failed");
+
+        success = success & res;
     }
   }
+  
+  else if (daikinUART->currentProtocol() == PROTOCOL_X50){
+    uint8_t size = sizeof(X50queryCmds) / sizeof(uint8_t);
+
+    //Periodically Query
+    for (int i = 0; i < size; i++)
+    {
+        uint8_t payload[17] = {0};
+
+        Log.ln(TAG, "Send command: " +  String(X50queryCmds[i],HEX));
+
+        switch (X50queryCmds[i])
+        {
+        case 0xCA:
+          res = daikinUART->sendCommandX50(X50queryCmds[i],payload,sizeof(payload));
+          break;
+        
+        default:
+          res = daikinUART->sendCommandX50(X50queryCmds[i],NULL,0);
+          break;
+        }
+
+        if (res)
+        {
+          ACResponse response = daikinUART->getResponse();
+          parseResponse(&response);
+        }
+        // ("Result: %s\n\n", res ? "Success" : "Failed");
+
+        success = success & res;
+    }
+
+    //Model Name Query
+    if (this->currentStatus.modelName.isEmpty()){
+      res = daikinUART->sendCommandX50(0xBA,NULL,0);
+      if (res)
+      {
+      ACResponse response = daikinUART->getResponse();
+      parseResponse(&response);
+      }
+    }
+    
+  }
+  
 
   lastSyncMs = millis();
   return success;
@@ -199,12 +260,13 @@ bool DaikinController::parseResponse(ACResponse *response)
       switch (cmd2_in)
       {
       case '1': // F1 -> Basic State
-        this->currentSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, payload[0]);
-        this->currentSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 7, payload[1]);
-        this->currentSettings.fan = lookupByteMapValue(FAN_MAP, FAN, 6, payload[3]);
+        this->currentSettings.power = lookupByteMapValue(S21_POWER_MAP, S21_POWER, 2, payload[0]);
+        this->currentSettings.mode = lookupByteMapValue(S21_MODE_MAP, S21_MODE, 7, payload[1]);
+        this->currentSettings.fan = lookupByteMapValue(S21_FAN_MAP, S21_FAN, 6, payload[3]);
         this->currentSettings.temperature = ((payload[2] - 28) * 5) / 10.0;
-        
-        if (this->currentSettings.temperature < 10 || this->currentSettings.temperature > 35){    //Set default value if HVAC does not have current setpoint Eg. After power outage.
+
+        if (this->currentSettings.temperature < 10 || this->currentSettings.temperature > 35)
+        { // Set default value if HVAC does not have current setpoint Eg. After power outage.
           this->currentSettings.temperature = 25;
         }
         newSettings = currentSettings; // we need current AC setting for future control.
@@ -214,10 +276,10 @@ bool DaikinController::parseResponse(ACResponse *response)
         this->currentSettings.horizontalVane = (payload[0] & 2) ? HORIZONTALVANE_MAP[1] : HORIZONTALVANE_MAP[0];
         newSettings = currentSettings; // we need current AC setting for future control.
         return true;
-      
+
       case '9': // F9 -> G9 -- Temperature
-        this->currentStatus.roomTemperature = (float) ((signed) payload[0] - 0x80) / 2;
-        this->currentStatus.outsideTemperature = (float) ((signed) payload[1] - 0x80) / 2;
+        this->currentStatus.roomTemperature = (float)((signed)payload[0] - 0x80) / 2;
+        this->currentStatus.outsideTemperature = (float)((signed)payload[1] - 0x80) / 2;
         newSettings = currentSettings; // we need current AC setting for future control.
         return true;
       }
@@ -253,28 +315,146 @@ bool DaikinController::parseResponse(ACResponse *response)
     Serial.println("Unknown response ");
     return false;
   }
+  else if (daikinUART->currentProtocol() == PROTOCOL_X50)
+  {
+    uint8_t cmd = response->cmd1;
+    uint8_t payloadSize = response->dataSize;
+    uint8_t payload[256];
+    memcpy(payload, response->data, payloadSize);
 
+    // HVAC Name
+    if (cmd == 0xBA && payloadSize >= 20)
+    {
+      char model[256];
+      uint8_t modelLen = 0;
+      for(int i = 0; i < payloadSize; i++){
+        if (isalnum(payload[i])){
+          model[i] = payload[i];
+          modelLen ++;
+        }else{
+          break;
+        }
+
+      }
+      this->currentStatus.modelName = String(model, modelLen) ;
+      return true;
+    }
+    // Main Status
+    if (cmd == 0xCA && payloadSize >= 7)
+    {
+      this->currentSettings.power = lookupByteMapValue(X50_POWER_MAP, X50_POWER, 2, payload[0]);
+      this->currentSettings.mode = lookupByteMapValue(X50_MODE_MAP, X50_MODE, 8, payload[1]);
+      this->currentSettings.fan = lookupByteMapValue(X50_FAN_MAP, X50_FAN, 6, (payload[6] >> 4) & 7);
+      return true;
+    }
+    if (cmd == 0xCB && payloadSize >= 2)  
+    { // We get all this from CA
+      return true;
+    }
+    // Temperature
+    if (cmd == 0xBD && payloadSize >= 29) //FCU Temp
+    { 
+      float t;
+      if ((t = (int16_t)(payload[0] + (payload[1] << 8)) / 128.0) && t < 100)
+      {
+        //  set_temp (inlet, t);
+        this->currentStatus.roomTemperature = round(t * 2.0) / 2.0;
+      }
+      if ((t = (int16_t)(payload[2] + (payload[3] << 8)) / 128.0) && t < 100)
+      {
+        //  unknown
+
+      }
+      if ((t = (int16_t)(payload[4] + (payload[5] << 8)) / 128.0) && t < 100)
+      {
+        //  set_temp (liquid, t);
+        this->currentStatus.coilTemperature = round(t * 2.0) / 2.0;
+      }
+      if ((t = (int16_t)(payload[6] + (payload[7] << 8)) / 128.0) && t < 100)
+      {
+          // Log.ln(TAG, "Unknown Temp = " + String(t));
+      }
+      if ((t = (int16_t)(payload[8] + (payload[9] << 8)) / 128.0) && t < 100)
+      {
+        this->currentSettings.temperature = round(t * 2.0) / 2.0;
+      }
+      return true;
+    }
+
+    if (cmd == 0xB7 && payloadSize >= 32){ // CDU Status
+      float t;
+      if ((t = (int16_t)(payload[0] + (payload[1] << 8)) / 128.0) && t < 100)
+      {
+          this->currentStatus.outsideTemperature = round(t * 2.0) / 2.0;
+          // Log.ln(TAG, "Home Temp = " + String(t));
+      }
+      if ((t = (int16_t)(payload[2] + (payload[3] << 8)) / 128.0) && t < 100)
+      {
+          //Unknown
+          // Log.ln(TAG, "t2 = " + String(t));
+      }
+      if ((t = (int16_t)(payload[4] + (payload[5] << 8)) / 128.0) && t < 100)
+      {
+          //Unknown
+          // Log.ln(TAG, "t3 = " + String(t));
+
+      }
+      if ((t = (int16_t)(payload[6] + (payload[7] << 8)) / 128.0) && t < 100)
+      {
+          //Unknown
+          // Log.ln(TAG, "t4 = " + String(t));
+      }
+      if ((t = (int16_t)(payload[8] + (payload[9] << 8)) / 128.0) && t < 100)
+      {
+          //Unknown
+          // Log.ln(TAG, "t5 = " + String(t));
+      }
+
+      if ((t = (int16_t)(payload[10] + (payload[11] << 8)) / 128.0) && t < 100)
+      {
+          //Unknown
+          // Log.ln(TAG, "t6 = " + String(t));
+      }
+
+
+      if ((t = (int16_t)((payload[26] + (payload[27] << 8))/10))== 0.0 || t <200){
+    
+          // CDU Frequency?
+          // Log.ln(TAG, "CF = " + String(t));
+          currentStatus.compressorFrequency = int(t);
+          this->currentStatus.operating = t != 0.0;
+      }
+      
+
+      return true;
+    }
+    if (cmd == 0xBE && payloadSize >= 9){
+        this->currentStatus.fanRPM = payload[2] + (payload[3] << 8);
+    }
+
+  }
 
   return false;
 }
 
 bool DaikinController::readState()
 {
-  Log.ln(TAG,"** AC Status *****************************");
-
-  Log.ln(TAG,"\tPower: " + String(this->currentSettings.power));
-  Log.ln(TAG,"\tMode: " + String(this->currentSettings.mode) + "("+ String(this->currentStatus.operating ? "active" : "idle") + ")");
+  Log.ln(TAG, "** AC Status *****************************");
+  if (!this->currentStatus.modelName.isEmpty())
+    Log.ln(TAG, "\tModel: " + this->currentStatus.modelName);
+  Log.ln(TAG, "\tPower: " + String(this->currentSettings.power));
+  Log.ln(TAG, "\tMode: " + String(this->currentSettings.mode) + "(" + String(this->currentStatus.operating ? "active" : "idle") + ")");
   float degc = this->currentSettings.temperature;
   float degf = degc * 1.8 + 32.0;
-  Log.ln(TAG,"\tTarget: "+ String(degc, 1));
-  Log.ln(TAG,"\tFan: " + String(this->currentSettings.fan) + " RPM:" +String(this->currentStatus.fanRPM));
-  Log.ln(TAG,"\tSwing: H:" + String(this->currentSettings.horizontalVane) + " V:"+ String(currentSettings.verticalVane));
-  Log.ln(TAG,"\tInside: " + String(this->currentStatus.roomTemperature,1));
-  Log.ln(TAG,"\tOutside: " + String(this->currentStatus.outsideTemperature,1));
-  Log.ln(TAG,"\tCoil: " + String(this->currentStatus.coilTemperature,1));
-  Log.ln(TAG,"\tCompressor Freq: " + String( this->currentStatus.compressorFrequency) + " Hz");
+  Log.ln(TAG, "\tTarget: " + String(degc, 1));
+  Log.ln(TAG, "\tFan: " + String(this->currentSettings.fan) + " RPM:" + String(this->currentStatus.fanRPM));
+  Log.ln(TAG, "\tSwing: H:" + String(this->currentSettings.horizontalVane) + " V:" + String(currentSettings.verticalVane));
+  Log.ln(TAG, "\tInside: " + String(this->currentStatus.roomTemperature, 1));
+  Log.ln(TAG, "\tOutside: " + String(this->currentStatus.outsideTemperature, 1));
+  Log.ln(TAG, "\tCoil: " + String(this->currentStatus.coilTemperature, 1));
+  Log.ln(TAG, "\tCompressor Freq: " + String(this->currentStatus.compressorFrequency) + " Hz");
 
-  Log.ln(TAG,"******************************************\n");
+  Log.ln(TAG, "******************************************\n");
 
   return true;
 }
@@ -287,7 +467,7 @@ bool DaikinController::setBasic(HVACSettings *settings)
   newSettings.temperature = settings->temperature;
   newSettings.verticalVane = settings->verticalVane;
   newSettings.horizontalVane = settings->horizontalVane;
-  
+
   // memcpy(&newSettings, &settings, sizeof(&newSettings));
   // LOGD_f(TAG,"setting %s \n", settings->power);
   pendingSettings.basic = true;
@@ -308,14 +488,13 @@ bool DaikinController::update(bool updateAll)
   //   return false;
   // }
 
-    if (!daikinUART->isConnected())
+  if (!daikinUART->isConnected())
   {
-    Log.ln(TAG,"AC is not connected!");
+    Log.ln(TAG, "AC is not connected!");
     return false;
   }
 
-
-  //COMMANDS for S21 Protocol
+  // COMMANDS for S21 Protocol
   if (daikinUART->currentProtocol() == PROTOCOL_S21)
   {
 
@@ -324,11 +503,11 @@ bool DaikinController::update(bool updateAll)
     if (pendingSettings.basic || updateAll)
     {
 
-      payload[0] = POWER[lookupByteMapIndex(POWER_MAP, 2, newSettings.power)];
-      payload[1] = MODE[lookupByteMapIndex(MODE_MAP, 7, newSettings.mode)];
+      payload[0] = S21_POWER[lookupByteMapIndex(S21_POWER_MAP, 2, newSettings.power)];
+      payload[1] = S21_MODE[lookupByteMapIndex(S21_MODE_MAP, 7, newSettings.mode)];
       payload[2] = c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
-      payload[3] = FAN[lookupByteMapIndex(FAN_MAP, 6, newSettings.fan)];
-      
+      payload[3] = S21_FAN[lookupByteMapIndex(S21_FAN_MAP, 6, newSettings.fan)];
+
       // std::vector<uint8_t> cmd = {
       //     (uint8_t)'0',
       //     (uint8_t)'3',
@@ -348,7 +527,7 @@ bool DaikinController::update(bool updateAll)
     {
 
       bool hVane = strcmp(HORIZONTALVANE_MAP[1], newSettings.horizontalVane) == 0;
-      bool vVane = strcmp(VERTICALVANE_MAP[1] , newSettings.verticalVane) == 0;
+      bool vVane = strcmp(VERTICALVANE_MAP[1], newSettings.verticalVane) == 0;
 
       // LOGD_f(TAG,"Swing state v:%d %s h:%d %s\n", vVane, newSettings.verticalVane , hVane , newSettings.horizontalVane);
 
@@ -360,12 +539,56 @@ bool DaikinController::update(bool updateAll)
       res = daikinUART->sendCommandS21('D', '5', payload, 4) & res;
       pendingSettings.vane = false;
     }
-
-
   }
 
-  else{
-    //Other protocol is not currently supported;
+  // Commands for X50 Protocol
+  else if (daikinUART->currentProtocol() == PROTOCOL_X50)
+  {
+
+    Log.ln(TAG,"Set new setting");
+
+    if (pendingSettings.basic || updateAll)
+    {
+
+
+      uint8_t ca[17] = {0};
+      uint8_t cb[2] = {0};
+
+      ca[0] = 2 + X50_POWER[lookupByteMapIndex(X50_POWER_MAP, 2, newSettings.power)];
+      uint8_t mode = X50_MODE[lookupByteMapIndex(X50_MODE_MAP, 7, newSettings.mode)];
+      ca[1] = 0x10 + mode;
+      if (mode >= 1 && mode <= 3)
+      { // Temp
+        int t = lroundf(newSettings.temperature * 10);
+        ca[3] = t / 10;
+        ca[4] = 0x80 + (t % 10);
+      }
+
+      if (mode == 1 || mode == 2)
+      {
+        cb[0] = X50_MODE[lookupByteMapIndex(X50_MODE_MAP, 7, newSettings.mode)];
+      }
+      else
+      {
+        cb[0] = 6;
+      }
+      cb[1] = 0x80 + ((X50_FAN[lookupByteMapIndex(X50_FAN_MAP, 6, newSettings.fan)] & 7) << 4);
+
+      res = daikinUART->sendCommandX50(0xCA, ca, sizeof(ca)) & res;
+      res = daikinUART->sendCommandX50(0xCB, cb, sizeof(cb)) & res;
+
+      pendingSettings.basic = false;
+    }
+
+    if (pendingSettings.vane || updateAll)
+    {
+      // unsupported
+    }
+  }
+
+  else
+  {
+    // Other protocol is not currently supported;
     res = false;
   }
 
@@ -376,39 +599,43 @@ void DaikinController::setPowerSetting(bool setting)
 {
   if (setting)
   {
-    setPowerSetting(POWER_MAP[1]);
+    setPowerSetting(S21_POWER_MAP[1]);
   }
   else
   {
-    setPowerSetting(POWER_MAP[0]);
+    setPowerSetting(S21_POWER_MAP[0]);
   }
 }
 
-void DaikinController::togglePower(){
-  if (currentSettings.power == POWER_MAP[0]){
-      setPowerSetting(true);
-  }else{
+void DaikinController::togglePower()
+{
+  if (currentSettings.power == S21_POWER_MAP[0])
+  {
+    setPowerSetting(true);
+  }
+  else
+  {
     setPowerSetting(false);
   }
 }
 
 void DaikinController::setPowerSetting(const char *setting)
 {
-  int index = lookupByteMapIndex(POWER_MAP, 2, setting);
+  int index = lookupByteMapIndex(S21_POWER_MAP, 2, setting);
   if (index > -1)
   {
-    newSettings.power = POWER_MAP[index];
+    newSettings.power = S21_POWER_MAP[index];
   }
   else
   {
-    newSettings.power = POWER_MAP[0];
+    newSettings.power = S21_POWER_MAP[0];
   }
   pendingSettings.basic = true;
 }
 
 bool DaikinController::getPowerSettingBool()
 {
-  return currentSettings.power == POWER_MAP[1];
+  return currentSettings.power == S21_POWER_MAP[1];
 }
 
 const char *DaikinController::getPowerSetting()
@@ -423,14 +650,14 @@ const char *DaikinController::getModeSetting()
 
 void DaikinController::setModeSetting(const char *setting)
 {
-  int index = lookupByteMapIndex(MODE_MAP, 7, setting);
+  int index = lookupByteMapIndex(S21_MODE_MAP, 7, setting);
   if (index > -1)
   {
-    newSettings.mode = MODE_MAP[index];
+    newSettings.mode = S21_MODE_MAP[index];
   }
   else
   {
-    newSettings.mode = MODE_MAP[0];
+    newSettings.mode = S21_MODE_MAP[0];
   }
   pendingSettings.basic = true;
 }
@@ -451,14 +678,14 @@ const char *DaikinController::getFanSpeed()
 }
 void DaikinController::setFanSpeed(const char *setting)
 {
-  int index = lookupByteMapIndex(FAN_MAP, 6, setting);
+  int index = lookupByteMapIndex(S21_FAN_MAP, 6, setting);
   if (index > -1)
   {
-    newSettings.fan = FAN_MAP[index];
+    newSettings.fan = S21_FAN_MAP[index];
   }
   else
   {
-    newSettings.fan = FAN_MAP[0];
+    newSettings.fan = S21_FAN_MAP[0];
   }
   pendingSettings.basic = true;
 }
@@ -499,10 +726,16 @@ void DaikinController::setHorizontalVaneSetting(const char *setting)
   pendingSettings.vane = true;
 }
 
-void DaikinController::setSettingsChangedCallback(SETTINGS_CHANGED_CALLBACK_SIGNATURE) {
+void DaikinController::setSettingsChangedCallback(SETTINGS_CHANGED_CALLBACK_SIGNATURE)
+{
   this->settingsChangedCallback = settingsChangedCallback;
 }
 
-void DaikinController::setStatusChangedCallback(STATUS_CHANGED_CALLBACK_SIGNATURE) {
+void DaikinController::setStatusChangedCallback(STATUS_CHANGED_CALLBACK_SIGNATURE)
+{
   this->statusChangedCallback = statusChangedCallback;
+}
+
+String DaikinController::getModelName(){
+  return this->currentStatus.modelName;
 }

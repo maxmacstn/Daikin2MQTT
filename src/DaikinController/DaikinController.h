@@ -61,6 +61,7 @@ struct HVACStatus
   int fanRPM;
   bool operating; // if true, the heatpump is operating to reach the desired temperature
   int compressorFrequency;
+  String modelName;
 };
 
 #define SETTINGS_CHANGED_CALLBACK_SIGNATURE std::function<void()> settingsChangedCallback
@@ -94,6 +95,7 @@ public:
   void setVerticalVaneSetting(const char *setting);
   const char *getHorizontalVaneSetting();
   void setHorizontalVaneSetting(const char *setting);
+  String getModelName();
 
   // Converter
   String daikin_climate_mode_to_string(DaikinClimateMode mode);

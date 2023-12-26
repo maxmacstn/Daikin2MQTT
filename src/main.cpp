@@ -1921,8 +1921,8 @@ void publishMQTTSensorConfig(const char *name, const char *id, const char *icon,
   haConfigDevice["ids"] = mqtt_fn;
   haConfigDevice["name"] = mqtt_fn;
   haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = "HVAC Daikin";
-  haConfigDevice["mf"] = "Daikin Industries";
+  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
+  haConfigDevice["mf"] = "Daikin";
   haConfigDevice["hw"] = hardware_version;
   haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
 
@@ -2027,7 +2027,7 @@ void haConfig()
   haConfigDevice["ids"] = mqtt_fn;
   haConfigDevice["name"] = mqtt_fn;
   haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = "HVAC Daikin";
+  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
   haConfigDevice["mf"] = "Daikin";
   haConfigDevice["hw"] = hardware_version;
   haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
@@ -2063,7 +2063,7 @@ void haConfig()
   haConfigDevice["ids"] = mqtt_fn;
   haConfigDevice["name"] = mqtt_fn;
   haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = "HVAC Daikin";
+  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
   haConfigDevice["mf"] = "Daikin";
   haConfigDevice["hw"] = hardware_version;
   haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
@@ -2105,7 +2105,7 @@ void haConfig()
   haConfigDevice["ids"] = mqtt_fn;
   haConfigDevice["name"] = mqtt_fn;
   haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = "HVAC Daikin";
+  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
   haConfigDevice["mf"] = "Daikin";
   haConfigDevice["hw"] = hardware_version;
   haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();

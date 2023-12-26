@@ -10,9 +10,12 @@
 #define S21_BAUD_RATE 2400
 #define S21_SERIAL_CONFIG SERIAL_8E2
 
+#define X50_BAUD_RATE 9600
+#define X50_SERIAL_CONFIG SERIAL_8E1
+
 #define PROTOCOL_UNKNOWN 0
 #define PROTOCOL_S21 1
-#define PROTOCOL_NEW 2
+#define PROTOCOL_X50 2
 
 // Packet structure
 #define S21_STX_OFFSET     0
@@ -66,13 +69,22 @@ const String S21setCmds[] = {
   "D5"
   };
 
+const uint8_t X50queryCmds[] = {0xCA, 0xCB, 0xBD, 0xBE,0xB7}; 
+// const uint8_t X50queryCmds[] = { 0xCB, 0xBD, 0xBE}; 
+//0xCA = Main status (power,mode,fan)
+//0xCB = ??
+//0xBD = FCU Temperature sensors,
+//0xB7 = CDU Temperature sensors,
+//0xBE =  FAN RPM, VANE?
+//0xBA = Model Number
+
 class DaikinUART
 {
 public:
   void setSerial(HardwareSerial *hardwareSerial);
   bool setup();
   void update();
-  bool sendCommandNew(uint8_t cmd, uint8_t *payload, uint8_t payloadLen, bool waitResponse = true);
+  bool sendCommandX50(uint8_t cmd, uint8_t *payload, uint8_t payloadLen, bool waitResponse = true);
   bool sendCommandS21(uint8_t cmd1, uint8_t cmd2);
   bool sendCommandS21(uint8_t cmd1, uint8_t cmd_2, uint8_t *payload, uint8_t payloadLen, bool waitResponse = true);
   ACResponse getResponse();
@@ -86,14 +98,15 @@ private:
   uint8_t protocol = PROTOCOL_UNKNOWN;
   ACResponse lastResponse;
   
-  bool testNewProtocol();
+  bool testX50Protocol();
   bool testS21Protocol();
 
   bool isS21SetCmd(uint8_t cmd1, uint8_t cmd2);
 
   bool run_queries(String queries[], uint8_t size);
   uint8_t S21Checksum(uint8_t *bytes, uint8_t len);
-  bool checkResponseNew(uint8_t cmd, uint8_t *buff, uint8_t size);
+  uint8_t X50Checksum(uint8_t *bytes, uint8_t len);
+  bool checkResponseX50(uint8_t cmd, uint8_t *buff, uint8_t size);
   int checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buff, uint8_t size);
 
 
