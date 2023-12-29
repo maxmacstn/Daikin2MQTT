@@ -70,11 +70,11 @@ const String S21setCmds[] = {
   };
 
 const uint8_t X50queryCmds[] = {0xCA, 0xCB, 0xBD, 0xBE,0xB7}; 
-// const uint8_t X50queryCmds[] = { 0xCB, 0xBD, 0xBE}; 
-//0xCA = Main status (power,mode,fan)
+// const uint8_t X50queryCmds[] = {0xCA, 0xBD, 0xBE}; 
+//0xCA = Main status (power,mode,fan) /
 //0xCB = ??
-//0xBD = FCU Temperature sensors,
-//0xB7 = CDU Temperature sensors,
+//0xBD = FCU Temperature sensors, /
+//0xB7 = CDU Temperature sensors/Compressor Frequency,
 //0xBE =  FAN RPM, VANE?
 //0xBA = Model Number
 
@@ -103,7 +103,6 @@ private:
 
   bool isS21SetCmd(uint8_t cmd1, uint8_t cmd2);
 
-  bool run_queries(String queries[], uint8_t size);
   uint8_t S21Checksum(uint8_t *bytes, uint8_t len);
   uint8_t X50Checksum(uint8_t *bytes, uint8_t len);
   bool checkResponseX50(uint8_t cmd, uint8_t *buff, uint8_t size);

@@ -15,7 +15,7 @@
 
 #define S21_RESPONSE_TIMEOUT 250
 
-#define SYNC_INTEVAL 10000
+#define SYNC_INTEVAL 5000
 
 #define S21_BAUD_RATE 2400
 #define S21_STOP_BITS 2
@@ -110,6 +110,7 @@ public:
   bool setBasic(HVACSettings *newSetting);
   bool readState();
 
+
   // Callbacks
   void setSettingsChangedCallback(SETTINGS_CHANGED_CALLBACK_SIGNATURE);
   void setStatusChangedCallback(STATUS_CHANGED_CALLBACK_SIGNATURE);
@@ -140,6 +141,7 @@ private:
   const char *lookupByteMapValue(const char *valuesMap[], const byte byteMap[], int len, byte byteValue);
   int lookupByteMapIndex(const char *valuesMap[], int len, const char *lookupValue);
   int lookupByteMapIndex(const int valuesMap[], int len, int lookupValue);
+  void onFirstQuerySuccess();
 };
 
 // #endif

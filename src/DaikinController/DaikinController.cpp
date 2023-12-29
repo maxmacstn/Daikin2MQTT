@@ -18,8 +18,9 @@ const char *X50_MODE_MAP[8] = {"FAN", "HEAT", "COOL", "AUTO", "4", "5", "6", "DR
 const byte S21_FAN[6] = {'A', '3', '4', '5', '6', '7'};
 const char *S21_FAN_MAP[6] = {"AUTO", "1", "2", "3", "4", "5"};
 
-const byte X50_FAN[7] = {0, 1, 2, 3, 4, 5, 6};
-const char *X50_FAN_MAP[7] = {"AUTO", "1", "2", "3", "4", "5", "AUTO"};
+// const byte X50_FAN[7] = {0, 1, 2, 3, 4, 5, 6};
+const byte X50_FAN[7] = {0, 1,2, 3,4, 5,6};
+const char *X50_FAN_MAP[7] = {"AUTO", "1",  "1", "2",  "2", "3",  "3"};
 // {"auto", "1", "2", "3", "4", "5", "night"}
 
 const byte VERTICALVANE[2] = {'0', '1'};
@@ -116,8 +117,28 @@ String DaikinController::daikin_fan_mode_to_string(DaikinFanMode mode)
   }
 }
 
+void DaikinController::onFirstQuerySuccess(){
+  
+  if (daikinUART->currentProtocol() == PROTOCOL_X50){
+    //Get AC Model Number
+    if (daikinUART->sendCommandX50(0xBA,NULL,0))
+    {
+      ACResponse response = daikinUART->getResponse();
+      parseResponse(&response);
+    }
+  }
+
+  
+
+}
+
 bool DaikinController::sync()
 {
+  // Log.ln(TAG, "Start Sync");
+  // delay(100);
+
+
+  static bool firstSuccess = true;
   bool success = true;
   bool res = false;
 
@@ -135,7 +156,7 @@ bool DaikinController::sync()
     for (int i = 0; i < size; i++)
     {
 
-      Log.ln(TAG, "Send command: " + S21queryCmds[i]);
+      Log.ln(TAG, String("Send command: " + S21queryCmds[i]));
     
 
         res = daikinUART->sendCommandS21(S21queryCmds[i][0], S21queryCmds[i][1]);
@@ -151,10 +172,13 @@ bool DaikinController::sync()
   }
   
   else if (daikinUART->currentProtocol() == PROTOCOL_X50){
-    uint8_t size = sizeof(X50queryCmds) / sizeof(uint8_t);
+    Log.ln(TAG, "Query X50");
+    delay(100);
+
+    uint8_t cmdSize = sizeof(X50queryCmds) / sizeof(uint8_t);
 
     //Periodically Query
-    for (int i = 0; i < size; i++)
+    for (int i = 0; i < cmdSize; i++)
     {
         uint8_t payload[17] = {0};
 
@@ -163,7 +187,7 @@ bool DaikinController::sync()
         switch (X50queryCmds[i])
         {
         case 0xCA:
-          res = daikinUART->sendCommandX50(X50queryCmds[i],payload,sizeof(payload));
+          res = daikinUART->sendCommandX50(X50queryCmds[i], payload,sizeof(payload));
           break;
         
         default:
@@ -177,24 +201,20 @@ bool DaikinController::sync()
           parseResponse(&response);
         }
         // ("Result: %s\n\n", res ? "Success" : "Failed");
-
         success = success & res;
     }
 
-    //Model Name Query
-    if (this->currentStatus.modelName.isEmpty()){
-      res = daikinUART->sendCommandX50(0xBA,NULL,0);
-      if (res)
-      {
-      ACResponse response = daikinUART->getResponse();
-      parseResponse(&response);
-      }
-    }
-    
   }
   
+  if (success && firstSuccess){
+    onFirstQuerySuccess();
+    firstSuccess = false;
+  }
 
   lastSyncMs = millis();
+
+  Log.ln(TAG, "End Sync");
+  delay(100);
   return success;
 }
 
@@ -319,7 +339,7 @@ bool DaikinController::parseResponse(ACResponse *response)
   {
     uint8_t cmd = response->cmd1;
     uint8_t payloadSize = response->dataSize;
-    uint8_t payload[256];
+    uint8_t payload[256]  ;
     memcpy(payload, response->data, payloadSize);
 
     // HVAC Name
@@ -344,7 +364,13 @@ bool DaikinController::parseResponse(ACResponse *response)
     {
       this->currentSettings.power = lookupByteMapValue(X50_POWER_MAP, X50_POWER, 2, payload[0]);
       this->currentSettings.mode = lookupByteMapValue(X50_MODE_MAP, X50_MODE, 8, payload[1]);
-      this->currentSettings.fan = lookupByteMapValue(X50_FAN_MAP, X50_FAN, 6, (payload[6] >> 4) & 7);
+      this->currentSettings.fan = lookupByteMapValue(X50_FAN_MAP, X50_FAN, 7, (payload[6] >> 4) & 7);  
+      // Log.ln(TAG, "Fan ENUM = " + String((payload[6] >> 4) & 7));    
+      if (this->currentSettings.temperature < 10 || this->currentSettings.temperature > 35)
+      { // Set default value if HVAC does not have current setpoint Eg. After power outage.
+          this->currentSettings.temperature = 25;
+      }
+      newSettings = currentSettings; 
       return true;
     }
     if (cmd == 0xCB && payloadSize >= 2)  
@@ -377,6 +403,7 @@ bool DaikinController::parseResponse(ACResponse *response)
       if ((t = (int16_t)(payload[8] + (payload[9] << 8)) / 128.0) && t < 100)
       {
         this->currentSettings.temperature = round(t * 2.0) / 2.0;
+        newSettings = currentSettings; 
       }
       return true;
     }
@@ -386,36 +413,34 @@ bool DaikinController::parseResponse(ACResponse *response)
       if ((t = (int16_t)(payload[0] + (payload[1] << 8)) / 128.0) && t < 100)
       {
           this->currentStatus.outsideTemperature = round(t * 2.0) / 2.0;
-          // Log.ln(TAG, "Home Temp = " + String(t));
       }
-      if ((t = (int16_t)(payload[2] + (payload[3] << 8)) / 128.0) && t < 100)
-      {
-          //Unknown
-          // Log.ln(TAG, "t2 = " + String(t));
-      }
-      if ((t = (int16_t)(payload[4] + (payload[5] << 8)) / 128.0) && t < 100)
-      {
-          //Unknown
-          // Log.ln(TAG, "t3 = " + String(t));
+      // if ((t = (int16_t)(payload[2] + (payload[3] << 8)) / 128.0) && t < 100)
+      // {
+      //     //Unknown
+      //     // Log.ln(TAG, "t2 = " + String(t));
+      // }
+      // if ((t = (int16_t)(payload[4] + (payload[5] << 8)) / 128.0) && t < 100)
+      // {
+      //     //Unknown
+      //     // Log.ln(TAG, "t3 = " + String(t));
 
-      }
-      if ((t = (int16_t)(payload[6] + (payload[7] << 8)) / 128.0) && t < 100)
-      {
-          //Unknown
-          // Log.ln(TAG, "t4 = " + String(t));
-      }
-      if ((t = (int16_t)(payload[8] + (payload[9] << 8)) / 128.0) && t < 100)
-      {
-          //Unknown
-          // Log.ln(TAG, "t5 = " + String(t));
-      }
+      // }
+      // if ((t = (int16_t)(payload[6] + (payload[7] << 8)) / 128.0) && t < 100)
+      // {
+      //     //Unknown
+      //     // Log.ln(TAG, "t4 = " + String(t));
+      // }
+      // if ((t = (int16_t)(payload[8] + (payload[9] << 8)) / 128.0) && t < 100)
+      // {
+      //     //Unknown
+      //     // Log.ln(TAG, "t5 = " + String(t));
+      // }
 
-      if ((t = (int16_t)(payload[10] + (payload[11] << 8)) / 128.0) && t < 100)
-      {
-          //Unknown
-          // Log.ln(TAG, "t6 = " + String(t));
-      }
-
+      // if ((t = (int16_t)(payload[10] + (payload[11] << 8)) / 128.0) && t < 100)
+      // {
+      //     //Unknown
+      //     // Log.ln(TAG, "t6 = " + String(t));
+      // }
 
       if ((t = (int16_t)((payload[26] + (payload[27] << 8))/10))== 0.0 || t <200){
     
@@ -425,11 +450,15 @@ bool DaikinController::parseResponse(ACResponse *response)
           this->currentStatus.operating = t != 0.0;
       }
       
-
       return true;
     }
+    // Fan Speed
     if (cmd == 0xBE && payloadSize >= 9){
-        this->currentStatus.fanRPM = payload[2] + (payload[3] << 8);
+        int rpm = payload[2] + (payload[3] << 8);
+        rpm = (rpm / 10) * 10;  //round to nearest tenth
+        this->currentStatus.fanRPM = rpm;
+
+        return true;
     }
 
   }
@@ -469,7 +498,7 @@ bool DaikinController::setBasic(HVACSettings *settings)
   newSettings.horizontalVane = settings->horizontalVane;
 
   // memcpy(&newSettings, &settings, sizeof(&newSettings));
-  // LOGD_f(TAG,"setting %s \n", settings->power);
+  // Log.ln(TAG,"SetBasic : Power = " + String(settings->power));
   pendingSettings.basic = true;
   return true;
 }
@@ -507,12 +536,6 @@ bool DaikinController::update(bool updateAll)
       payload[1] = S21_MODE[lookupByteMapIndex(S21_MODE_MAP, 7, newSettings.mode)];
       payload[2] = c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
       payload[3] = S21_FAN[lookupByteMapIndex(S21_FAN_MAP, 6, newSettings.fan)];
-
-      // std::vector<uint8_t> cmd = {
-      //     (uint8_t)'0',
-      //     (uint8_t)'3',
-      //     c10_to_setpoint_byte(lroundf(round(newSettings.temperature * 2) / 2 * 10.0)),
-      //     (uint8_t)'2'};
 
       // LOGD_f(TAG,"Setting payload %x %x %x %x\n", cmd[0], cmd[1] ,cmd[2], cmd[3]);
 

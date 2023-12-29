@@ -43,14 +43,14 @@ bool DaikinUART::setup()
 
   }
 
+  delay(2000);
 
-  // if ( testS21Protocol()){
-  //   Log.ln(TAG,"S21 protocol detected");
-  //   protocol = PROTOCOL_S21;
-  //   return true;
-  // }
+  if ( testS21Protocol()){
+    Log.ln(TAG,"S21 protocol detected");
+    protocol = PROTOCOL_S21;
+    return true;
+  }
   
-  // delay(2000);
 
   if (testX50Protocol())
   {
@@ -62,6 +62,7 @@ bool DaikinUART::setup()
   else{
     Log.ln(TAG, "Protocol unknown");
     protocol = PROTOCOL_UNKNOWN;
+    connected = false;
     return false;
   }
 }
@@ -74,7 +75,7 @@ bool DaikinUART::testX50Protocol()
   bool res = true;
   uint8_t testData[] = {0x01};
   res = sendCommandX50(0xAA, testData, 1);
-  res = sendCommandX50(0xBA, NULL, 0);
+  // res = sendCommandX50(0xBA, NULL, 0);
   return res;
 }
 
@@ -117,23 +118,6 @@ bool DaikinUART::isS21SetCmd(uint8_t cmd1, uint8_t cmd2){
 }
 
 
-bool DaikinUART::run_queries(String queries[], uint8_t size)
-{
-  bool success = true;
-
-  // for (auto q : queries) {
-  //   std::vector<uint8_t> code(q.begin(), q.end());
-  //   success = this->s21_query(code) && success;
-  // }
-
-  // for (int i = 0; i < size; i++)
-  // {
-  //   success = (s21_query(queries[i]).rcode.size() != 0) && success;
-  // }
-
-  return success; // True if all queries successful
-}
-
 bool DaikinUART::sendCommandX50(uint8_t cmd, uint8_t *payload, uint8_t payloadLen, bool waitResponse)
 {
 
@@ -147,20 +131,19 @@ bool DaikinUART::sendCommandX50(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
   buf[4] = 0;
   
   //Add payload
-  if (payloadLen)
+  if (payload != nullptr && payloadLen){
     memcpy(buf + 5, payload, payloadLen);
+  }
   
   //Calculate checksum
   uint8_t c = 0;
   for (int i = 0; i < 5 + payloadLen; i++)
     c += buf[i];
   buf[5 + payloadLen] = 0xFF - c;
-  // buf[5+payloadLen] = X50Checksum(buf, 5 + payloadLen);
-
   len = 6 + payloadLen;
 
   // Send payload
-  Log.ln(TAG,"X50 >> " + getHEXformatted(buf, len));
+  Log.ln(TAG,String("X50 >> " + getHEXformatted(buf, len)));
   _serial->write(buf, len);
 
   if (!waitResponse)
@@ -168,13 +151,12 @@ bool DaikinUART::sendCommandX50(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
 
   // Read incoming payload
   uint8_t buf_in[256];
-  uint8_t size_in = _serial->readBytes(buf_in, 256);
+  uint8_t size_in = _serial->readBytes(buf_in, 255);
 
 
 
-  Log.ln(TAG,"X50 << " + getHEXformatted(buf_in, size_in));
+  Log.ln(TAG, String("X50 << " + getHEXformatted(buf_in, size_in)));
   bool responseOK = checkResponseX50(cmd, buf_in, size_in);
-  // Log.ln(TAG,"Response "+ responseOK ? "YES" : "NO");
 
 
   if (responseOK){
@@ -211,7 +193,7 @@ bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, ui
   len = S21_MIN_PKT_LEN + payloadLen;
 
   // Send payload
-  Log.ln(TAG,"S21 >> " + getHEXformatted(buf, len));
+  Log.ln(TAG,String("S21 >> " + getHEXformatted(buf, len)));
   _serial->write(buf, len);
 
   if (!waitResponse)
@@ -244,14 +226,14 @@ bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, ui
     }
   }
 
-  Log.ln(TAG,"S21 << " + getHEXformatted(buf_in, size_in));
+  Log.ln(TAG,String("S21 << " + getHEXformatted(buf_in, size_in)));
   bool responseOK = (checkResponseS21(cmd1, cmd2, buf_in, size_in) == S21_OK);
   // LOGD_f(TAG,"Response %s\n", responseOK ? "YES" : "NO");
 
   if (responseOK){
     lastResponse.cmd1 = cmd1;
     lastResponse.cmd2 = cmd2;
-    lastResponse.dataSize = size_in -1; 
+    lastResponse.dataSize = size_in - 1; 
     memcpy(lastResponse.data, buf_in+1, size_in-1);   //Remove 1st byte (ACK)
   }
 
@@ -266,6 +248,7 @@ bool DaikinUART::checkResponseX50(uint8_t cmd, uint8_t *buf, uint8_t size)
     Log.ln(TAG,"checkResponseX50: Empty Response");
     return false;
   }
+
 
   // Check checksum
   uint8_t checksum = 0;
@@ -299,7 +282,7 @@ bool DaikinUART::checkResponseX50(uint8_t cmd, uint8_t *buf, uint8_t size)
   }
   if (!buf[4]) // Loopback
   {
-    Log.ln(TAG,"checkResponseNew: Loopback Detected");
+    Log.ln(TAG,"checkResponseX50: Loopback Detected");
     return false;
   }
 

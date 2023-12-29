@@ -7,6 +7,7 @@ Logging &Logging::getInstance() {
 }
 
 void Logging:: storeLog(char *log, size_t size){
+    return;
 
     // Serial.printf("Total PSRAM: %d\n", ESP.getPsramSize());
     // Serial.printf("Free PSRAM: %d\n", ESP.getFreePsram());

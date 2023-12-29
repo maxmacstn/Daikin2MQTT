@@ -24,7 +24,6 @@
 
 #define TAG "mainApp"
 
-
 // Set stack size to 16KB (8KB is likely to crash).
 SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB
 
@@ -62,6 +61,7 @@ unsigned long lastMqttRetry;
 unsigned long lastHpSync;
 unsigned int hpConnectionRetries;
 unsigned int hpConnectionTotalRetries;
+bool firstSync = true;
 
 // Local state
 StaticJsonDocument<JSON_OBJECT_SIZE(256)> rootInfo;
@@ -233,7 +233,8 @@ bool loadWifi()
   return true;
 }
 
-void beep(Buzzer_preset buzzer_p){
+void beep(Buzzer_preset buzzer_p)
+{
   switch (buzzer_p)
   {
   case ON:
@@ -245,7 +246,7 @@ void beep(Buzzer_preset buzzer_p){
     delay(100);
     ledcWriteTone(0, 0);
     break;
-  
+
   case OFF:
     ledcWriteTone(0, BUZZER_FREQ);
     delay(400);
@@ -994,7 +995,7 @@ void handleStatus()
   {
 
     statusPage.replace(F("_HVAC_STATUS_"), connected);
-    statusPage.replace(F("_HVAC_PROTOCOL_"), (ac.daikinUART->currentProtocol() == PROTOCOL_S21) ? "[S21]" : "[NEW]");
+    statusPage.replace(F("_HVAC_PROTOCOL_"), (ac.daikinUART->currentProtocol() == PROTOCOL_S21) ? "[S21]" : "[X50]");
   }
   else
   {
@@ -1042,6 +1043,7 @@ void handleControl()
   controlPage.replace("_USE_FAHRENHEIT_", (String)useFahrenheit);
   controlPage.replace("_TEMP_SCALE_", getTemperatureScale());
   controlPage.replace("_HEAT_MODE_SUPPORT_", (String)supportHeatMode);
+  controlPage.replace("_X50_PROTOCOL_", (String)(ac.daikinUART->currentProtocol()== PROTOCOL_X50));
   controlPage.replace(F("_MIN_TEMP_"), String(convertCelsiusToLocalUnit(min_temp, useFahrenheit)));
   controlPage.replace(F("_MAX_TEMP_"), String(convertCelsiusToLocalUnit(max_temp, useFahrenheit)));
   controlPage.replace(F("_TEMP_STEP_"), String(temp_step));
@@ -1762,17 +1764,12 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       rootInfo["temperature"] = temperature;
     }
     hpSendLocalState();
-    // Log.ln(TAG, "send local state done");
-    // Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
-    // delay(50);
+
     ac.setTemperature(temperature_c);
-    // Log.ln(TAG, "set temp done");
-    // Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
-    // delay(50);
+
     beep(SET);
     ac.update();
-    // Log.ln(TAG, "update done");
-    // delay(50);
+
   }
   else if (strcmp(topic, ha_fan_set_topic.c_str()) == 0)
   {
@@ -1783,7 +1780,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     beep(SET);
     ac.update();
   }
-  else if (strcmp(topic, ha_vane_set_topic.c_str()) == 0)
+  else if (strcmp(topic, ha_vane_set_topic.c_str()) == 0 && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
   {
     // LOGD_f(TAG, "Set vertical vane %s\n",message);
     rootInfo["vane"] = (String)message;
@@ -1792,7 +1789,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     beep(SET);
     ac.update();
   }
-  else if (strcmp(topic, ha_wideVane_set_topic.c_str()) == 0)
+  else if (strcmp(topic, ha_wideVane_set_topic.c_str()) == 0 && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
   {
     // LOGD_f(TAG, "Wide Vane = %s\n", message);
     rootInfo["wideVane"] = (String)message;
@@ -1819,7 +1816,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       mqtt_client.publish(ha_debug_topic.c_str(), (char *)("Debug mode disabled"));
     }
   }
-  else if (strcmp(topic, ha_custom_packet_s21.c_str()) == 0)
+  else if (strcmp(topic, ha_custom_packet_s21.c_str()) == 0  && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
   { // send custom packet for advance user
     String custom = message;
 
@@ -1896,6 +1893,19 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
   digitalWrite(LED_ACT, LOW);
 }
 
+void addMQTTDeviceInfo(DynamicJsonDocument *JsonDocument)
+{
+  JsonObject haConfigDevice = JsonDocument->createNestedObject("device");
+
+  haConfigDevice["ids"] = mqtt_fn;
+  haConfigDevice["name"] = mqtt_fn;
+  haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
+  haConfigDevice["mdl"] = ac.getModelName().isEmpty() ? "HVAC Daikin" : ac.getModelName();
+  haConfigDevice["mf"] = "Daikin";
+  haConfigDevice["hw"] = hardware_version;
+  haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
+}
+
 void publishMQTTSensorConfig(const char *name, const char *id, const char *icon, const char *unit, const char *deviceClass, String stateTopic, String valueTemplate, String topic)
 {
   const size_t sensorConfigSize = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
@@ -1915,16 +1925,7 @@ void publishMQTTSensorConfig(const char *name, const char *id, const char *icon,
   haSensorConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
   haSensorConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
 
-  JsonObject haConfigDevice = haSensorConfig.createNestedObject("device");
-  haConfigDevice = haSensorConfig.createNestedObject("device");
-
-  haConfigDevice["ids"] = mqtt_fn;
-  haConfigDevice["name"] = mqtt_fn;
-  haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
-  haConfigDevice["mf"] = "Daikin";
-  haConfigDevice["hw"] = hardware_version;
-  haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
+  addMQTTDeviceInfo(&haSensorConfig);
 
   String mqttOutput;
   serializeJson(haSensorConfig, mqttOutput);
@@ -1946,11 +1947,11 @@ void haConfig()
   haClimateConfig["icon"] = HA_AC_icon;
 
   JsonArray haConfigModes = haClimateConfig.createNestedArray("modes");
-  haConfigModes.add("heat_cool"); // native AUTO mode
   haConfigModes.add("cool");
   haConfigModes.add("dry");
   if (supportHeatMode)
   {
+    haConfigModes.add("heat_cool"); // native AUTO mode
     haConfigModes.add("heat");
   }
   haConfigModes.add("fan_only"); // native FAN mode
@@ -1977,7 +1978,6 @@ void haConfig()
   haClimateConfig["curr_temp_t"] = ha_state_topic;
   String curr_temp_tpl_str = F("{{ value_json.roomTemperature if (value_json is defined and value_json.roomTemperature is defined and value_json.roomTemperature|int > ");
   curr_temp_tpl_str += (String)convertCelsiusToLocalUnit(1, useFahrenheit) + ") else '" + (String)convertCelsiusToLocalUnit(26, useFahrenheit) + "' }}"; // Set default value for fix "Could not parse data for HA"
-  //  String room_temp_tpl_str = F("{{value_json.roomTemperature}}");
   haClimateConfig["curr_temp_tpl"] = curr_temp_tpl_str;
 
   String outside_temp_tpl_str = F("{{ value_json.outsideTemperature if (value_json is defined and value_json.outsideTemperature is defined and value_json.outsideTemperature|int > ");
@@ -2001,36 +2001,41 @@ void haConfig()
   haClimateConfig["temperature_unit"] = useFahrenheit ? "F" : "C";
 
   JsonArray haConfigFan_modes = haClimateConfig.createNestedArray("fan_modes");
-  haConfigFan_modes.add("AUTO");
-  haConfigFan_modes.add("1");
-  haConfigFan_modes.add("2");
-  haConfigFan_modes.add("3");
-  haConfigFan_modes.add("4");
-  haConfigFan_modes.add("5");
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
+  {
+    haConfigFan_modes.add("AUTO");
+    haConfigFan_modes.add("1");
+    haConfigFan_modes.add("2");
+    haConfigFan_modes.add("3");
+    haConfigFan_modes.add("4");
+    haConfigFan_modes.add("5");
+  }
+  else
+  {
+    haConfigFan_modes.add("AUTO");
+    haConfigFan_modes.add("1");
+    haConfigFan_modes.add("2");
+    haConfigFan_modes.add("3");
+  }
 
   haClimateConfig["fan_mode_cmd_t"] = ha_fan_set_topic;
   haClimateConfig["fan_mode_stat_t"] = ha_state_topic;
   haClimateConfig["fan_mode_stat_tpl"] = F("{{ value_json.fan if (value_json is defined and value_json.fan is defined and value_json.fan|length) else 'AUTO' }}"); // Set default value for fix "Could not parse data for HA"
 
-  JsonArray haConfigSwing_modes = haClimateConfig.createNestedArray("swing_modes");
-  haConfigSwing_modes.add("HOLD");
-  haConfigSwing_modes.add("SWING");
-
-  haClimateConfig["swing_mode_cmd_t"] = ha_vane_set_topic;
-  haClimateConfig["swing_mode_stat_t"] = ha_state_topic;
-  haClimateConfig["swing_mode_stat_tpl"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'AUTO' }}"); // Set default value for fix "Could not parse data for HA"
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
+  {
+    JsonArray haConfigSwing_modes = haClimateConfig.createNestedArray("swing_modes");
+    haConfigSwing_modes.add("HOLD");
+    haConfigSwing_modes.add("SWING");
+    haClimateConfig["swing_mode_cmd_t"] = ha_vane_set_topic;
+    haClimateConfig["swing_mode_stat_t"] = ha_state_topic;
+    haClimateConfig["swing_mode_stat_tpl"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'AUTO' }}"); // Set default value for fix "Could not parse data for HA"
+    
+  }
   haClimateConfig["action_topic"] = ha_state_topic;
   haClimateConfig["action_template"] = F("{{ value_json.action if (value_json is defined and value_json.action is defined and value_json.action|length) else 'idle' }}"); // Set default value for fix "Could not parse data for HA"
 
-  JsonObject haConfigDevice = haClimateConfig.createNestedObject("device");
-
-  haConfigDevice["ids"] = mqtt_fn;
-  haConfigDevice["name"] = mqtt_fn;
-  haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
-  haConfigDevice["mf"] = "Daikin";
-  haConfigDevice["hw"] = hardware_version;
-  haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
+  addMQTTDeviceInfo(&haClimateConfig);
 
   String mqttOutput;
   serializeJson(haClimateConfig, mqttOutput);
@@ -2045,76 +2050,65 @@ void haConfig()
   publishMQTTSensorConfig("Compressor Frequency", "_comp_freq", HA_sine_wave_icon, "Hz", NULL, ha_state_topic, comp_freq_tpl_str, ha_sensor_comp_freq_config_topic);
 
   // Vane vertical config
-  const size_t capacityVaneVerticalConfig = JSON_ARRAY_SIZE(8) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-  DynamicJsonDocument haVaneVerticalConfig(capacityVaneVerticalConfig);
-  // StaticJsonDocument<1024> haVaneVerticalConfig;
-  haVaneVerticalConfig["name"] = "Vane Vertical";
-  haVaneVerticalConfig["unique_id"] = getId() + "_vane_vertical";
-  haVaneVerticalConfig["icon"] = HA_vane_vertical_icon;
-  haVaneVerticalConfig["state_topic"] = ha_state_topic;
-  haVaneVerticalConfig["value_template"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'AUTO' }}"); // Set default value for fix "Could not parse data for HA"
-  haVaneVerticalConfig["command_topic"] = ha_vane_set_topic;
-  JsonArray haConfighVaneVerticalOptions = haVaneVerticalConfig.createNestedArray("options");
-  haConfighVaneVerticalOptions.add("HOLD");
-  haConfighVaneVerticalOptions.add("SWING");
-
-  haConfigDevice = haVaneVerticalConfig.createNestedObject("device");
-
-  haConfigDevice["ids"] = mqtt_fn;
-  haConfigDevice["name"] = mqtt_fn;
-  haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
-  haConfigDevice["mf"] = "Daikin";
-  haConfigDevice["hw"] = hardware_version;
-  haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
-  if (others_avail_report)
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
   {
-    haVaneVerticalConfig["avty_t"] = ha_availability_topic;          // MQTT last will (status) messages topic
-    haVaneVerticalConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
-    haVaneVerticalConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
+    const size_t capacityVaneVerticalConfig = JSON_ARRAY_SIZE(8) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
+    DynamicJsonDocument haVaneVerticalConfig(capacityVaneVerticalConfig);
+    haVaneVerticalConfig["name"] = "Vane Vertical";
+    haVaneVerticalConfig["unique_id"] = getId() + "_vane_vertical";
+    haVaneVerticalConfig["icon"] = HA_vane_vertical_icon;
+    haVaneVerticalConfig["state_topic"] = ha_state_topic;
+    haVaneVerticalConfig["value_template"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'AUTO' }}"); // Set default value for fix "Could not parse data for HA"
+    haVaneVerticalConfig["command_topic"] = ha_vane_set_topic;
+    JsonArray haConfighVaneVerticalOptions = haVaneVerticalConfig.createNestedArray("options");
+    haConfighVaneVerticalOptions.add("HOLD");
+    haConfighVaneVerticalOptions.add("SWING");
+
+    addMQTTDeviceInfo(&haVaneVerticalConfig);
+
+    if (others_avail_report)
+    {
+      haVaneVerticalConfig["avty_t"] = ha_availability_topic;          // MQTT last will (status) messages topic
+      haVaneVerticalConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
+      haVaneVerticalConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
+    }
+
+    mqttOutput.clear();
+    serializeJson(haVaneVerticalConfig, mqttOutput);
+    mqtt_client.beginPublish(ha_select_vane_vertical_config_topic.c_str(), mqttOutput.length(), true);
+    mqtt_client.print(mqttOutput);
+    mqtt_client.endPublish();
   }
 
-  mqttOutput.clear();
-  serializeJson(haVaneVerticalConfig, mqttOutput);
-  mqtt_client.beginPublish(ha_select_vane_vertical_config_topic.c_str(), mqttOutput.length(), true);
-  mqtt_client.print(mqttOutput);
-  mqtt_client.endPublish();
-
-  // Vane horizontal config
-  const size_t capacityVaneHorizontalConfig = JSON_ARRAY_SIZE(7) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-  DynamicJsonDocument haVaneHorizontalConfig(capacityVaneHorizontalConfig);
-  // StaticJsonDocument<1024> haVaneHorizontalConfig;
-  haVaneHorizontalConfig["name"] = "Vane Horizontal";
-  haVaneHorizontalConfig["unique_id"] = getId() + "_vane_horizontal";
-  haVaneHorizontalConfig["icon"] = HA_vane_horizontal_icon;
-  haVaneHorizontalConfig["state_topic"] = ha_state_topic;
-  haVaneHorizontalConfig["value_template"] = F("{{ value_json.wideVane if (value_json is defined and value_json.wideVane is defined and value_json.wideVane|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
-  haVaneHorizontalConfig["command_topic"] = ha_wideVane_set_topic;
-  JsonArray haConfigVaneHorizontalOptions = haVaneHorizontalConfig.createNestedArray("options");
-  haConfigVaneHorizontalOptions.add("HOLD");
-  haConfigVaneHorizontalOptions.add("SWING");
-  if (others_avail_report)
+  // Vane horizontal config 
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
   {
-    haVaneHorizontalConfig["avty_t"] = ha_availability_topic;          // MQTT last will (status) messages topic
-    haVaneHorizontalConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
-    haVaneHorizontalConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
+    const size_t capacityVaneHorizontalConfig = JSON_ARRAY_SIZE(7) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
+    DynamicJsonDocument haVaneHorizontalConfig(capacityVaneHorizontalConfig);
+    // StaticJsonDocument<1024> haVaneHorizontalConfig;
+    haVaneHorizontalConfig["name"] = "Vane Horizontal";
+    haVaneHorizontalConfig["unique_id"] = getId() + "_vane_horizontal";
+    haVaneHorizontalConfig["icon"] = HA_vane_horizontal_icon;
+    haVaneHorizontalConfig["state_topic"] = ha_state_topic;
+    haVaneHorizontalConfig["value_template"] = F("{{ value_json.wideVane if (value_json is defined and value_json.wideVane is defined and value_json.wideVane|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
+    haVaneHorizontalConfig["command_topic"] = ha_wideVane_set_topic;
+    JsonArray haConfigVaneHorizontalOptions = haVaneHorizontalConfig.createNestedArray("options");
+    haConfigVaneHorizontalOptions.add("HOLD");
+    haConfigVaneHorizontalOptions.add("SWING");
+    if (others_avail_report)
+    {
+      haVaneHorizontalConfig["avty_t"] = ha_availability_topic;          // MQTT last will (status) messages topic
+      haVaneHorizontalConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
+      haVaneHorizontalConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
+    }
+    addMQTTDeviceInfo(&haVaneHorizontalConfig);
+
+    mqttOutput.clear();
+    serializeJson(haVaneHorizontalConfig, mqttOutput);
+    mqtt_client.beginPublish(ha_select_vane_horizontal_config_topic.c_str(), mqttOutput.length(), true);
+    mqtt_client.print(mqttOutput);
+    mqtt_client.endPublish();
   }
-
-  haConfigDevice = haVaneHorizontalConfig.createNestedObject("device");
-
-  haConfigDevice["ids"] = mqtt_fn;
-  haConfigDevice["name"] = mqtt_fn;
-  haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
-  haConfigDevice["mdl"] = ac.getModelName().isEmpty()? "HVAC Daikin":ac.getModelName() ;
-  haConfigDevice["mf"] = "Daikin";
-  haConfigDevice["hw"] = hardware_version;
-  haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
-
-  mqttOutput.clear();
-  serializeJson(haVaneHorizontalConfig, mqttOutput);
-  mqtt_client.beginPublish(ha_select_vane_horizontal_config_topic.c_str(), mqttOutput.length(), true);
-  mqtt_client.print(mqttOutput);
-  mqtt_client.endPublish();
 }
 
 void mqttConnect()
@@ -2272,8 +2266,8 @@ String getTemperatureScale()
 String getId()
 {
   String lastMac = WiFi.macAddress();
-  lastMac.remove(0,9);
-  lastMac.replace(":","");
+  lastMac.remove(0, 9);
+  lastMac.replace(":", "");
   return lastMac;
 }
 
@@ -2364,7 +2358,7 @@ void handleButton()
       Log.ln(TAG, "Handle Long press");
       ESP.restart();
       break;
-    
+
     case (longLongPress):
       Log.ln(TAG, "Handle Long Long press");
       wifiFactoryReset();
@@ -2414,7 +2408,15 @@ void IRAM_ATTR InterruptBTN()
   }
 }
 
+void onFirstSyncSuccess(){
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_X50){
+    temp_step = 1.0;
+  }
 
+  if(others_haa)
+    haConfig();
+  firstSync = false;
+}
 
 void setup()
 {
@@ -2439,7 +2441,7 @@ void setup()
   Log.ln(TAG, "FW Version:\t" + String(dk2mqtt_version));
   Log.ln(TAG, "HW Version:\t" + String(hardware_version));
   Log.ln(TAG, "ESP Chip Model:\t" + String(ESP.getChipModel()));
-  Log.ln(TAG, "ESP PSRam Size:\t" + String(ESP.getPsramSize()/1000)+" Kb");
+  Log.ln(TAG, "ESP PSRam Size:\t" + String(ESP.getPsramSize() / 1000) + " Kb");
   Log.ln(TAG, "MAC Address:\t" + WiFi.macAddress());
 
   if (esp_reset_reason() == ESP_RST_TASK_WDT)
@@ -2585,11 +2587,12 @@ void setup()
   esp_task_wdt_add(NULL);
 
   beep(SET);
-
 }
 
 void loop()
 {
+
+
   server.handleClient();
   ArduinoOTA.handle();
   esp_task_wdt_reset();
@@ -2623,6 +2626,9 @@ void loop()
         if (ac.connect(acSerial))
         {
           ac.sync();
+          if (firstSync){
+            onFirstSyncSuccess();
+          }
         }
         digitalWrite(LED_ACT, LOW);
       }
@@ -2630,8 +2636,12 @@ void loop()
     else
     {
       hpConnectionRetries = 0;
+
       if (ac.sync())
       {
+        if (firstSync){
+          onFirstSyncSuccess();
+        }
         ac.readState();
         Log.ln(TAG, "PSRAM size:\t" + String(ESP.getPsramSize()));
         Log.ln(TAG, "PSRAM Free:\t" + String(ESP.getFreePsram()));
@@ -2669,6 +2679,7 @@ void loop()
     digitalWrite(LED_ACT, HIGH);
     dnsServer.processNextRequest();
   }
+
 
   handleButton();
 }

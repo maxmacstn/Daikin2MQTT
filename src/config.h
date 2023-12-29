@@ -16,7 +16,7 @@
 
 //#define MY_LANGUAGE fr-FR // define your language
 
-const PROGMEM char* dk2mqtt_version = "1.0-beta.1";
+const PROGMEM char* dk2mqtt_version = "1.0-beta.2";
 
 //Define global variables for files
 const PROGMEM char* wifi_conf = "/wifi.json";
