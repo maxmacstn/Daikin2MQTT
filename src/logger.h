@@ -9,7 +9,8 @@ class Logging{
     private:
         Logging() = default;
         // char logBuff[LOG_SIZE];
-        char *logBuffPTR = NULL;
+        // char *logBuffPTR = NULL;
+        char logBuffPTR [LOG_SIZE];
         unsigned int logBuffSize = 0;
     public:
         static Logging &getInstance();

@@ -72,6 +72,8 @@ int uploaderror = 0;
 // AC Serial
 HardwareSerial *acSerial(&Serial0);
 
+
+
 // Prototypes
 void wifiFactoryReset();
 // void testMode();
@@ -233,8 +235,11 @@ bool loadWifi()
   return true;
 }
 
-void beep(Buzzer_preset buzzer_p)
+void playBeep(Buzzer_preset buzzer_p)
 {
+  if (!beep)
+    return;
+
   switch (buzzer_p)
   {
   case ON:
@@ -286,9 +291,9 @@ void saveMqtt(String mqttFn, String mqttHost, String mqttPort, String mqttUser,
   configFile.close();
 }
 
-void saveUnit(String tempUnit, String supportMode, String updateInterval, String loginPassword, String minTemp, String maxTemp, String tempStep)
+void saveUnit(String tempUnit, String supportMode, String updateInterval, String loginPassword, String minTemp, String maxTemp, String tempStep, String beep)
 {
-  const size_t capacity = JSON_OBJECT_SIZE(7) + 200;
+  const size_t capacity = JSON_OBJECT_SIZE(8) + 200;
   DynamicJsonDocument doc(capacity);
   // if temp unit is empty, we use default celcius
   if (tempUnit.isEmpty())
@@ -317,6 +322,9 @@ void saveUnit(String tempUnit, String supportMode, String updateInterval, String
   // if login password is empty, we use empty
   if (loginPassword.isEmpty())
     loginPassword = "";
+  if (beep.isEmpty())
+    beep = "1";
+  doc["beep"] = beep;
 
   doc["login_password"] = loginPassword;
   File configFile = SPIFFS.open(unit_conf, "w");
@@ -502,6 +510,10 @@ bool loadUnit()
   {
     login_password = "";
   }
+
+  String beepStr = doc["beep"].as<String>();
+  beep = beepStr == "1";
+
   return true;
 }
 
@@ -866,7 +878,7 @@ void handleUnit()
 
   if (server.method() == HTTP_POST)
   {
-    saveUnit(server.arg("tu"), server.arg("md"), server.arg("update_int"), server.arg("lpw"), (String)convertLocalUnitToCelsius(server.arg("min_temp").toInt(), useFahrenheit), (String)convertLocalUnitToCelsius(server.arg("max_temp").toInt(), useFahrenheit), server.arg("temp_step"));
+    saveUnit(server.arg("tu"), server.arg("md"), server.arg("update_int"), server.arg("lpw"), (String)convertLocalUnitToCelsius(server.arg("min_temp").toInt(), useFahrenheit), (String)convertLocalUnitToCelsius(server.arg("max_temp").toInt(), useFahrenheit), server.arg("temp_step"), server.arg("beep"));
     rebootAndSendPage();
   }
   else
@@ -882,6 +894,7 @@ void handleUnit()
     unitPage.replace("_TXT_UNIT_MODES_", FPSTR(txt_unit_modes));
     unitPage.replace("_TXT_UNIT_UPDATE_INTERVAL_", FPSTR(txt_unit_update_interval));
     unitPage.replace("_TXT_UNIT_PASSWORD_", FPSTR(txt_unit_password));
+    unitPage.replace("_TXT_UNIT_BEEP_", FPSTR(txt_unit_beep));
     unitPage.replace("_TXT_F_CELSIUS_", FPSTR(txt_f_celsius));
     unitPage.replace("_TXT_F_FH_", FPSTR(txt_f_fh));
     unitPage.replace("_TXT_F_ALLMODES_", FPSTR(txt_f_allmodes));
@@ -891,6 +904,8 @@ void handleUnit()
     unitPage.replace("_TXT_F_30_S", FPSTR(txt_f_30s));
     unitPage.replace("_TXT_F_45_S", FPSTR(txt_f_45s));
     unitPage.replace("_TXT_F_60_S", FPSTR(txt_f_60s));
+    unitPage.replace("_TXT_F_BEEP_ON_", FPSTR(txt_f_beep_on));
+    unitPage.replace("_TXT_F_BEEP_OFF_", FPSTR(txt_f_beep_off));
     unitPage.replace(F("_MIN_TEMP_"), String(convertCelsiusToLocalUnit(min_temp, useFahrenheit)));
     unitPage.replace(F("_MAX_TEMP_"), String(convertCelsiusToLocalUnit(max_temp, useFahrenheit)));
     unitPage.replace(F("_TEMP_STEP_"), String(temp_step));
@@ -905,6 +920,12 @@ void handleUnit()
     else
       unitPage.replace(F("_MD_NONHEAT_"), F("selected"));
     unitPage.replace(F("_LOGIN_PASSWORD_"), login_password);
+
+    //beep
+    if(beep)
+      unitPage.replace(F("_BEEP_ON_"), F("selected"));
+    else
+      unitPage.replace(F("_BEEP_OFF_"), F("selected"));
 
     switch (update_int)
     {
@@ -1486,6 +1507,7 @@ HVACSettings change_states(HVACSettings settings)
     {
       // Serial.printf("Set new basic %s %s %.2f %s %s %s \n", settings.power, settings.mode, settings.temperature, settings.fan, settings.verticalVane, settings.horizontalVane);
       digitalWrite(LED_ACT, LOW);
+      playBeep(SET);
       ac.setBasic(&settings);
       ac.update(true);
       lastCommandSend = millis();
@@ -1683,13 +1705,13 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     if (modeUpper == "OFF")
     {
       ac.setPowerSetting("OFF");
-      beep(OFF);
+      playBeep(OFF);
       ac.update();
     }
     else if (modeUpper == "ON")
     {
       ac.setPowerSetting("ON");
-      beep(ON);
+      playBeep(ON);
       ac.update();
     }
   }
@@ -1702,12 +1724,12 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       rootInfo["mode"] = "off";
       rootInfo["action"] = "off";
       hpSendLocalState();
-      beep(OFF);
+      playBeep(OFF);
       ac.setPowerSetting("OFF");
     }
     else
     {
-      beep(ON);
+      playBeep(ON);
       if (modeUpper == "HEAT_COOL")
       {
         rootInfo["mode"] = "heat_cool";
@@ -1748,10 +1770,10 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
   else if (strcmp(topic, ha_temp_set_topic.c_str()) == 0)
   {
 
-    Log.ln(TAG, "got temp change");
-    Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
-    delay(50);
-    delay(100);
+    // Log.ln(TAG, "got temp change");
+    // Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
+    // delay(50);
+    // delay(100);
     float temperature = strtof(message, NULL);
     float temperature_c = convertLocalUnitToCelsius(temperature, useFahrenheit);
     if (temperature_c < min_temp || temperature_c > max_temp)
@@ -1767,7 +1789,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
 
     ac.setTemperature(temperature_c);
 
-    beep(SET);
+    playBeep(SET);
     ac.update();
 
   }
@@ -1775,9 +1797,9 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
   {
     rootInfo["fan"] = (String)message;
     hpSendLocalState();
-    beep(SET);
+    playBeep(SET);
     ac.setFanSpeed(message);
-    beep(SET);
+    playBeep(SET);
     ac.update();
   }
   else if (strcmp(topic, ha_vane_set_topic.c_str()) == 0 && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
@@ -1786,7 +1808,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     rootInfo["vane"] = (String)message;
     hpSendLocalState();
     ac.setVerticalVaneSetting(message);
-    beep(SET);
+    playBeep(SET);
     ac.update();
   }
   else if (strcmp(topic, ha_wideVane_set_topic.c_str()) == 0 && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
@@ -1795,7 +1817,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     rootInfo["wideVane"] = (String)message;
     hpSendLocalState();
     ac.setHorizontalVaneSetting(message);
-    beep(SET);
+    playBeep(SET);
     ac.update();
   }
   // else if (strcmp(topic, ha_remote_temp_set_topic.c_str()) == 0) {
@@ -1838,7 +1860,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     }
 
     Log.ln(TAG, "Send custom packet");
-    beep(SET);
+    playBeep(SET);
     bool res = false;
     if (byteCount == 2)
     {
@@ -2425,6 +2447,7 @@ void setup()
   pinMode(LED_PWR, OUTPUT);
   pinMode(BTN_1, INPUT);
   ledcAttachPin(BUZZER, 0);
+  ledcWriteTone(0, 0);
 
   digitalWrite(LED_ACT, HIGH);
   digitalWrite(LED_PWR, HIGH);
@@ -2582,11 +2605,11 @@ void setup()
 
   digitalWrite(LED_ACT, LOW);
 
+ 
   // Enable watchdog
   esp_task_wdt_init(30, true);
   esp_task_wdt_add(NULL);
 
-  beep(SET);
 }
 
 void loop()
@@ -2679,7 +2702,6 @@ void loop()
     digitalWrite(LED_ACT, HIGH);
     dnsServer.processNextRequest();
   }
-
 
   handleButton();
 }

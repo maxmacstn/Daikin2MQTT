@@ -129,8 +129,10 @@ bool supportHeatMode = false;
 #define BUZZER 14
 #define BUZZER_FREQ 4000
 
+//Buzzer settings
 enum Buzzer_preset{
   ON,
   SET,
   OFF
 };
+bool beep = true;
