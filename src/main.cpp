@@ -1785,39 +1785,36 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     {
       rootInfo["temperature"] = temperature;
     }
-    hpSendLocalState();
-
-    ac.setTemperature(temperature_c);
-
     playBeep(SET);
+    hpSendLocalState();
+    ac.setTemperature(temperature_c);
     ac.update();
 
   }
   else if (strcmp(topic, ha_fan_set_topic.c_str()) == 0)
   {
     rootInfo["fan"] = (String)message;
+    playBeep(SET);
     hpSendLocalState();
-    playBeep(SET);
     ac.setFanSpeed(message);
-    playBeep(SET);
     ac.update();
   }
   else if (strcmp(topic, ha_vane_set_topic.c_str()) == 0 && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
   {
     // LOGD_f(TAG, "Set vertical vane %s\n",message);
     rootInfo["vane"] = (String)message;
+    playBeep(SET);
     hpSendLocalState();
     ac.setVerticalVaneSetting(message);
-    playBeep(SET);
     ac.update();
   }
   else if (strcmp(topic, ha_wideVane_set_topic.c_str()) == 0 && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
   {
     // LOGD_f(TAG, "Wide Vane = %s\n", message);
     rootInfo["wideVane"] = (String)message;
+    playBeep(SET);
     hpSendLocalState();
     ac.setHorizontalVaneSetting(message);
-    playBeep(SET);
     ac.update();
   }
   // else if (strcmp(topic, ha_remote_temp_set_topic.c_str()) == 0) {
@@ -2431,9 +2428,9 @@ void IRAM_ATTR InterruptBTN()
 }
 
 void onFirstSyncSuccess(){
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_X50){
-    temp_step = 1.0;
-  }
+  // if (ac.daikinUART->currentProtocol() == PROTOCOL_X50){
+  //   temp_step = 1.0;
+  // }
 
   if(others_haa)
     haConfig();
