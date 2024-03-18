@@ -58,6 +58,8 @@ const char txt_f_15s[] PROGMEM = "15 seconds";
 const char txt_f_30s[] PROGMEM = "30 seconds";
 const char txt_f_45s[] PROGMEM = "45 seconds";
 const char txt_f_60s[] PROGMEM = "60 seconds";
+const char txt_f_beep_on[] PROGMEM = "ON";
+const char txt_f_beep_off[] PROGMEM = "OFF";
 
 //Page Reboot, save & Resseting
 const char txt_m_reboot[] PROGMEM = "Rebooting... Refresh in";
@@ -115,6 +117,7 @@ const char txt_unit_steptemp[] PROGMEM = "Temperature step";
 const char txt_unit_update_interval[] PROGMEM = "Update interval";
 const char txt_unit_modes[] PROGMEM = "Mode support";
 const char txt_unit_password[] PROGMEM = "Web password";
+const char txt_unit_beep[] PROGMEM = "Beep";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "Authentication";

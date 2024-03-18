@@ -61,6 +61,7 @@ struct HVACStatus
   int fanRPM;
   bool operating; // if true, the heatpump is operating to reach the desired temperature
   int compressorFrequency;
+  String modelName;
 };
 
 #define SETTINGS_CHANGED_CALLBACK_SIGNATURE std::function<void()> settingsChangedCallback
@@ -94,6 +95,7 @@ public:
   void setVerticalVaneSetting(const char *setting);
   const char *getHorizontalVaneSetting();
   void setHorizontalVaneSetting(const char *setting);
+  String getModelName();
 
   // Converter
   String daikin_climate_mode_to_string(DaikinClimateMode mode);
@@ -107,6 +109,7 @@ public:
   // bool is_power_on() { return this->power_on; }
   bool setBasic(HVACSettings *newSetting);
   bool readState();
+
 
   // Callbacks
   void setSettingsChangedCallback(SETTINGS_CHANGED_CALLBACK_SIGNATURE);
@@ -138,6 +141,7 @@ private:
   const char *lookupByteMapValue(const char *valuesMap[], const byte byteMap[], int len, byte byteValue);
   int lookupByteMapIndex(const char *valuesMap[], int len, const char *lookupValue);
   int lookupByteMapIndex(const int valuesMap[], int len, int lookupValue);
+  void onFirstQuerySuccess();
 };
 
 // #endif

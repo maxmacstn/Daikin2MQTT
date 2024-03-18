@@ -7,17 +7,21 @@ Logging &Logging::getInstance() {
 }
 
 void Logging:: storeLog(char *log, size_t size){
+    // return;
+
+    if (size > 512)
+        size = 512;
 
     // Serial.printf("Total PSRAM: %d\n", ESP.getPsramSize());
     // Serial.printf("Free PSRAM: %d\n", ESP.getFreePsram());
     // delay(100);
     // Copy log to historical buffer
     // Serial.printf("logbuffsize %d buff0 =  %c size = %d\n", logBuffSize, buff[0], size);
-    if (logBuffPTR == nullptr){
-        logBuffPTR = (char*) ps_malloc(sizeof(char) * LOG_SIZE);
-    }
+    // if (logBuffPTR == nullptr){
+    //     logBuffPTR = (char*) ps_malloc(sizeof(char) * LOG_SIZE);
+    // }
     // Serial.printf("logbuffptr %p\n", logBuffPTR);
-    memcpy(logBuffPTR + logBuffSize , log, sizeof(char*) * size );
+    memcpy(logBuffPTR + logBuffSize , log, sizeof(char) * size );
 
     logBuffSize += size;
     
