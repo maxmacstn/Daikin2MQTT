@@ -14,9 +14,9 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-//#define MY_LANGUAGE fr-FR // define your language
+//#define MY_LANGUAGE fr-FR // define your languageช
 
-const PROGMEM char* dk2mqtt_version = "1.0-beta.2";
+const PROGMEM char* dk2mqtt_version = "1.0-beta.4";
 
 //Define global variables for files
 const PROGMEM char* wifi_conf = "/wifi.json";

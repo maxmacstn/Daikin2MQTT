@@ -289,9 +289,6 @@ const char html_page_control[] PROGMEM =
     "options[3].disabled = (options[3].value == 'HEAT');"
 "}"
 "if (_X50_PROTOCOL_) {"
-    "var options = document.getElementById('FAN').options;"
-    "options[4].disabled = (options[4].value == '4');"
-    "options[5].disabled = (options[5].value == '5');"
 
     "var options = document.getElementById('MODE').options;"
     "options[0].disabled = (options[0].value == 'AUTO');"

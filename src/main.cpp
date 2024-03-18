@@ -1506,12 +1506,12 @@ HVACSettings change_states(HVACSettings settings)
     if (update)
     {
       // Serial.printf("Set new basic %s %s %.2f %s %s %s \n", settings.power, settings.mode, settings.temperature, settings.fan, settings.verticalVane, settings.horizontalVane);
-      digitalWrite(LED_ACT, LOW);
+      digitalWrite(LED_ACT, HIGH);
       playBeep(SET);
       ac.setBasic(&settings);
       ac.update(true);
       lastCommandSend = millis();
-      digitalWrite(LED_ACT, HIGH);
+      digitalWrite(LED_ACT, LOW);
     }
   }
   return settings;
@@ -1683,9 +1683,7 @@ void hpSendLocalState()
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
 
-  Log.ln(TAG, "MQTT CB");
-  Log.ln(TAG, "Free Stack Space:" + String(uxTaskGetStackHighWaterMark(NULL)));
-  delay(50);
+
   digitalWrite(LED_ACT, HIGH);
 
   // Copy payload into message buffer
@@ -2035,6 +2033,8 @@ void haConfig()
     haConfigFan_modes.add("1");
     haConfigFan_modes.add("2");
     haConfigFan_modes.add("3");
+    haConfigFan_modes.add("4"); //Test
+    haConfigFan_modes.add("5"); //Test
   }
 
   haClimateConfig["fan_mode_cmd_t"] = ha_fan_set_topic;

@@ -20,7 +20,8 @@ const char *S21_FAN_MAP[6] = {"AUTO", "1", "2", "3", "4", "5"};
 
 // const byte X50_FAN[7] = {0, 1, 2, 3, 4, 5, 6};
 const byte X50_FAN[7] = {0, 1,2, 3,4, 5,6};
-const char *X50_FAN_MAP[7] = {"AUTO", "1",  "1", "2",  "2", "3",  "3"};
+// const char *X50_FAN_MAP[7] = {"AUTO", "1",  "1", "2",  "2", "3",  "3"};
+const char *X50_FAN_MAP[7] = {"AUTO", "1",  "2", "3",  "4", "5",  "6"};
 // {"auto", "1", "2", "3", "4", "5", "night"}
 
 const byte VERTICALVANE[2] = {'0', '1'};
@@ -578,9 +579,9 @@ bool DaikinController::update(bool updateAll)
       uint8_t cb[2] = {0};
 
       ca[0] = 2 + X50_POWER[lookupByteMapIndex(X50_POWER_MAP, 2, newSettings.power)];
-      uint8_t mode = X50_MODE[lookupByteMapIndex(X50_MODE_MAP, 7, newSettings.mode)];
+      uint8_t mode = X50_MODE[lookupByteMapIndex(X50_MODE_MAP, 8, newSettings.mode)];
       ca[1] = 0x10 + mode;
-      if (mode >= 1 && mode <= 3)
+      if (mode == 1 || mode == 2 || mode == 3)
       { // Temp
         int t = lroundf(newSettings.temperature * 10);
         ca[3] = t / 10;
@@ -589,7 +590,7 @@ bool DaikinController::update(bool updateAll)
 
       if (mode == 1 || mode == 2)
       {
-        cb[0] = X50_MODE[lookupByteMapIndex(X50_MODE_MAP, 7, newSettings.mode)];
+        cb[0] = mode;
       }
       else
       {
