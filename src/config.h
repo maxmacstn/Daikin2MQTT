@@ -16,7 +16,7 @@
 
 //#define MY_LANGUAGE fr-FR // define your languageช
 
-const PROGMEM char* dk2mqtt_version = "1.0-beta.4";
+const PROGMEM char* dk2mqtt_version = "1.0";
 
 //Define global variables for files
 const PROGMEM char* wifi_conf = "/wifi.json";
@@ -36,7 +36,7 @@ String ap_pwd;
 String ota_pwd;
 
 //CN105Kit Product version
-const PROGMEM char* hardware_version = "WiFiKit Serial 1.0";
+const PROGMEM char* hardware_version = "WiFiKit Serial 1.2";
 
 // Define global variables for MQTT
 String mqtt_fn;
@@ -74,6 +74,8 @@ String ha_wideVane_set_topic;
 String ha_settings_topic;
 String ha_state_topic;
 String ha_debug_topic;
+String ha_serial_recv_topic;
+String ha_serial_send_topic;
 String ha_debug_set_topic;
 String ha_climate_config_topic;
 String ha_sensor_room_temp_config_topic;

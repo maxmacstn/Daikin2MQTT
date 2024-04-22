@@ -72,8 +72,6 @@ int uploaderror = 0;
 // AC Serial
 HardwareSerial *acSerial(&Serial0);
 
-
-
 // Prototypes
 void wifiFactoryReset();
 // void testMode();
@@ -98,50 +96,37 @@ String getTemperatureScale();
 bool is_authenticated();
 String hpGetMode(HVACSettings hvacSettings);
 void hpStatusChanged(HVACStatus currentStatus);
+void playBeep(Buzzer_preset buzzer_preset);
 
 void testMode()
 {
-  digitalWrite(LED_ACT, LOW);
-  Serial.println("TestMode");
+  acSerial->begin(115200);
+  acSerial->println("TestMode");
+  playBeep(ON);
   for (int i = 0; i < 10; i++)
   {
     digitalWrite(LED_PWR, LOW);
+    digitalWrite(LED_ACT, HIGH);
     delay(100);
     digitalWrite(LED_PWR, HIGH);
+    digitalWrite(LED_ACT, LOW);
     delay(100);
   }
+  digitalWrite(LED_ACT, HIGH);
 
   SPIFFS.format();
-  Serial.println("format_done");
-
-  if (!ac.connect(acSerial))
-  {
-    while (1)
-    {
-      digitalWrite(LED_ACT, HIGH);
-      delay(100);
-      digitalWrite(LED_ACT, LOW);
-      delay(100);
-    }
-  }
-  digitalWrite(LED_ACT, HIGH);
-  ac.setModeSetting("FAN");
-  ac.setPowerSetting("ON");
-  ac.update();
-  delay(1000);
-  ac.setPowerSetting("OFF");
-  ac.update();
+  acSerial->println("format_done");
 
   while (1)
   {
     digitalWrite(LED_ACT, millis() / 1000 % 2);
-    if (Serial.available())
+    if (acSerial->available())
     {
-      String cmd = Serial.readStringUntil('\n');
+      String cmd = acSerial->readStringUntil('\n');
       if (cmd == "mac")
       {
-        Serial.println("mac");
-        Serial.println(WiFi.macAddress());
+        acSerial->println("mac");
+        acSerial->println(WiFi.macAddress());
       }
       if (cmd == "wlan")
       {
@@ -151,8 +136,38 @@ void testMode()
         {
           wlan_list += WiFi.SSID(i) + "\t" + String(WiFi.RSSI(i)) + "\n";
         }
-        Serial.println("wlan");
-        Serial.println(wlan_list);
+        acSerial->println("wlan");
+        acSerial->println(wlan_list);
+      }
+      if (cmd == "serial")
+      {
+
+        //   acSerial->end();
+
+        //   unsigned long startMs = millis();
+
+        //   pinMode(43, OUTPUT);
+        //   pinMode(44, OUTPUT);
+        //   ledcSetup(1, 9600/2, 8);
+        //   ledcAttachPin(43,1);
+        //   ledcAttachPin(44,1);
+        //   ledcWrite(1, 255/2);
+        //   GPIO.func_out_sel_cfg[44].inv_sel = 1;
+
+        //   do {
+
+        //   } while(millis() < startMs + 10000);
+        //   ledcWrite(1, 0);
+        //   ledcDetachPin(43);
+        //   ledcDetachPin(44);
+        //   delay(100);
+        //   acSerial->begin(115200);
+
+        // }
+        uint8_t buff[] = {0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01};
+        acSerial->write(buff, 30);
+        delay(5000);
+        acSerial->println("done");
       }
     }
   }
@@ -626,7 +641,7 @@ void sendWrappedHTML(String content)
   String headerContent = FPSTR(html_common_header);
   String footerContent = FPSTR(html_common_footer);
   String toSend = headerContent + content + footerContent;
-  toSend.replace(F("_UNIT_NAME_"), hostname);
+  toSend.replace(F("_UNIT_NAME_"), _debugMode ? hostname + "&nbsp[DEBUG MODE]" : hostname);
   toSend.replace(F("_VERSION_"), dk2mqtt_version);
   server.send(200, F("text/html"), toSend);
 }
@@ -699,8 +714,8 @@ void handleRoot()
   {
     String menuRootPage = FPSTR(html_menu_root);
     menuRootPage.replace("_SHOW_LOGOUT_", (String)(login_password.length() > 0));
-    // not show control button if hp not connected
-    menuRootPage.replace("_SHOW_CONTROL_", (String)(ac.isConnected()));
+    // not show control button if hp not connected or in debug mode.
+    menuRootPage.replace("_SHOW_CONTROL_", (String)(ac.isConnected() && !_debugMode));
     menuRootPage.replace("_TXT_CONTROL_", FPSTR(txt_control));
     menuRootPage.replace("_TXT_SETUP_", FPSTR(txt_setup));
     menuRootPage.replace("_TXT_STATUS_", FPSTR(txt_status));
@@ -921,8 +936,8 @@ void handleUnit()
       unitPage.replace(F("_MD_NONHEAT_"), F("selected"));
     unitPage.replace(F("_LOGIN_PASSWORD_"), login_password);
 
-    //beep
-    if(beep)
+    // beep
+    if (beep)
       unitPage.replace(F("_BEEP_ON_"), F("selected"));
     else
       unitPage.replace(F("_BEEP_OFF_"), F("selected"));
@@ -1064,7 +1079,7 @@ void handleControl()
   controlPage.replace("_USE_FAHRENHEIT_", (String)useFahrenheit);
   controlPage.replace("_TEMP_SCALE_", getTemperatureScale());
   controlPage.replace("_HEAT_MODE_SUPPORT_", (String)supportHeatMode);
-  controlPage.replace("_X50_PROTOCOL_", (String)(ac.daikinUART->currentProtocol()== PROTOCOL_X50));
+  controlPage.replace("_X50_PROTOCOL_", (String)(ac.daikinUART->currentProtocol() == PROTOCOL_X50));
   controlPage.replace(F("_MIN_TEMP_"), String(convertCelsiusToLocalUnit(min_temp, useFahrenheit)));
   controlPage.replace(F("_MAX_TEMP_"), String(convertCelsiusToLocalUnit(max_temp, useFahrenheit)));
   controlPage.replace(F("_TEMP_STEP_"), String(temp_step));
@@ -1683,7 +1698,6 @@ void hpSendLocalState()
 void mqttCallback(char *topic, byte *payload, unsigned int length)
 {
 
-
   digitalWrite(LED_ACT, HIGH);
 
   // Copy payload into message buffer
@@ -1787,7 +1801,6 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     hpSendLocalState();
     ac.setTemperature(temperature_c);
     ac.update();
-
   }
   else if (strcmp(topic, ha_fan_set_topic.c_str()) == 0)
   {
@@ -1833,7 +1846,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       mqtt_client.publish(ha_debug_topic.c_str(), (char *)("Debug mode disabled"));
     }
   }
-  else if (strcmp(topic, ha_custom_packet_s21.c_str()) == 0  && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
+  else if (strcmp(topic, ha_custom_packet_s21.c_str()) == 0 && (ac.daikinUART->currentProtocol() == PROTOCOL_S21))
   { // send custom packet for advance user
     String custom = message;
 
@@ -1900,6 +1913,41 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       }
     }
     Log.ln(TAG, commandRes);
+  }
+
+  else if (strcmp(topic, ha_serial_send_topic.c_str()) == 0)
+  {
+    if (_debugMode && ac.isConnected())
+    {
+      Log.ln(TAG, "Serial SEND >> " + getHEXformatted2(payload, length));
+      acSerial->write(payload, length);
+
+      // if (acSerial->available() > 0){
+      uint8_t buff[255];
+      // String data = acSerial->readStringUntil(0x03);
+      uint8_t len = acSerial->readBytesUntil(0x03, buff, 255);
+
+      if (len)
+      {
+        buff[len] = 0x03;
+        len++;
+      }
+
+      // uint8_t len = 0;
+      // unsigned long startMs = millis();
+
+      // while(millis() - startMs < 200 && len < 255){
+      //   int c = acSerial->read();
+      //   if (c > 0){
+      //     buff[len] = c;
+      //     len++;
+      //   }
+      // }
+      // data.toCharArray((char*) buff,sizeof(buff));
+      Log.ln(TAG, "Serial RECV << " + getHEXformatted2(buff, len));
+      mqtt_client.publish(ha_serial_recv_topic.c_str(), buff, len);
+      // }
+    }
   }
 
   else
@@ -2033,8 +2081,8 @@ void haConfig()
     haConfigFan_modes.add("1");
     haConfigFan_modes.add("2");
     haConfigFan_modes.add("3");
-    haConfigFan_modes.add("4"); //Test
-    haConfigFan_modes.add("5"); //Test
+    haConfigFan_modes.add("4"); // Test
+    haConfigFan_modes.add("5"); // Test
   }
 
   haClimateConfig["fan_mode_cmd_t"] = ha_fan_set_topic;
@@ -2049,7 +2097,6 @@ void haConfig()
     haClimateConfig["swing_mode_cmd_t"] = ha_vane_set_topic;
     haClimateConfig["swing_mode_stat_t"] = ha_state_topic;
     haClimateConfig["swing_mode_stat_tpl"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'AUTO' }}"); // Set default value for fix "Could not parse data for HA"
-    
   }
   haClimateConfig["action_topic"] = ha_state_topic;
   haClimateConfig["action_template"] = F("{{ value_json.action if (value_json is defined and value_json.action is defined and value_json.action|length) else 'idle' }}"); // Set default value for fix "Could not parse data for HA"
@@ -2099,7 +2146,7 @@ void haConfig()
     mqtt_client.endPublish();
   }
 
-  // Vane horizontal config 
+  // Vane horizontal config
   if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
   {
     const size_t capacityVaneHorizontalConfig = JSON_ARRAY_SIZE(7) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
@@ -2171,7 +2218,8 @@ void mqttConnect()
       mqtt_client.subscribe(ha_remote_temp_set_topic.c_str());
       mqtt_client.subscribe(ha_custom_packet_s21.c_str());
       mqtt_client.subscribe(ha_custom_query_experimental.c_str());
-      mqtt_client.publish(ha_availability_topic.c_str(), mqtt_payload_available, true); // publish status as available
+      mqtt_client.subscribe(ha_serial_send_topic.c_str());
+      mqtt_client.publish(ha_availability_topic.c_str(), !_debugMode ? mqtt_payload_available : mqtt_payload_unavailable, true); // publish status as available
       if (others_haa)
       {
         haConfig();
@@ -2427,12 +2475,13 @@ void IRAM_ATTR InterruptBTN()
   }
 }
 
-void onFirstSyncSuccess(){
+void onFirstSyncSuccess()
+{
   // if (ac.daikinUART->currentProtocol() == PROTOCOL_X50){
   //   temp_step = 1.0;
   // }
 
-  if(others_haa)
+  if (others_haa)
     haConfig();
   firstSync = false;
 }
@@ -2442,6 +2491,7 @@ void setup()
   Serial.begin(115200); // USB CDC (Built-in)
   pinMode(LED_ACT, OUTPUT);
   pinMode(LED_PWR, OUTPUT);
+  pinMode(LED_PWR, OUTPUT);
   pinMode(BTN_1, INPUT);
   ledcAttachPin(BUZZER, 0);
   ledcWriteTone(0, 0);
@@ -2450,7 +2500,7 @@ void setup()
   digitalWrite(LED_PWR, HIGH);
   attachInterrupt(BTN_1, InterruptBTN, CHANGE);
 
-  delay(3000);
+  delay(1000);
 
   if (!digitalRead(BTN_1))
   {
@@ -2546,6 +2596,8 @@ void setup()
       ha_settings_topic = mqtt_topic + "/" + mqtt_fn + "/settings";
       ha_state_topic = mqtt_topic + "/" + mqtt_fn + "/state";
       ha_debug_topic = mqtt_topic + "/" + mqtt_fn + "/debug";
+      ha_serial_recv_topic = mqtt_topic + "/" + mqtt_fn + "/serial/recv";
+      ha_serial_send_topic = mqtt_topic + "/" + mqtt_fn + "/serial/send";
       ha_debug_set_topic = mqtt_topic + "/" + mqtt_fn + "/debug/set";
       ha_custom_packet_s21 = mqtt_topic + "/" + mqtt_fn + "/send/s21";
       ha_custom_query_experimental = mqtt_topic + "/" + mqtt_fn + "/send/s21exp";
@@ -2602,16 +2654,13 @@ void setup()
 
   digitalWrite(LED_ACT, LOW);
 
- 
   // Enable watchdog
   esp_task_wdt_init(30, true);
   esp_task_wdt_add(NULL);
-
 }
 
 void loop()
 {
-
 
   server.handleClient();
   ArduinoOTA.handle();
@@ -2646,8 +2695,14 @@ void loop()
         if (ac.connect(acSerial))
         {
           ac.sync();
-          if (firstSync){
+          if (firstSync)
+          {
             onFirstSyncSuccess();
+          }
+
+          if (_debugMode)
+          {
+            acSerial->setTimeout(200);
           }
         }
         digitalWrite(LED_ACT, LOW);
@@ -2657,9 +2712,10 @@ void loop()
     {
       hpConnectionRetries = 0;
 
-      if (ac.sync())
+      if (!_debugMode && ac.sync())
       {
-        if (firstSync){
+        if (firstSync)
+        {
           onFirstSyncSuccess();
         }
         ac.readState();
