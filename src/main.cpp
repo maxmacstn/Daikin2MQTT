@@ -142,28 +142,6 @@ void testMode()
       if (cmd == "serial")
       {
 
-        //   acSerial->end();
-
-        //   unsigned long startMs = millis();
-
-        //   pinMode(43, OUTPUT);
-        //   pinMode(44, OUTPUT);
-        //   ledcSetup(1, 9600/2, 8);
-        //   ledcAttachPin(43,1);
-        //   ledcAttachPin(44,1);
-        //   ledcWrite(1, 255/2);
-        //   GPIO.func_out_sel_cfg[44].inv_sel = 1;
-
-        //   do {
-
-        //   } while(millis() < startMs + 10000);
-        //   ledcWrite(1, 0);
-        //   ledcDetachPin(43);
-        //   ledcDetachPin(44);
-        //   delay(100);
-        //   acSerial->begin(115200);
-
-        // }
         uint8_t buff[] = {0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01};
         acSerial->write(buff, 30);
         delay(5000);
@@ -1933,17 +1911,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
         len++;
       }
 
-      // uint8_t len = 0;
-      // unsigned long startMs = millis();
 
-      // while(millis() - startMs < 200 && len < 255){
-      //   int c = acSerial->read();
-      //   if (c > 0){
-      //     buff[len] = c;
-      //     len++;
-      //   }
-      // }
-      // data.toCharArray((char*) buff,sizeof(buff));
       Log.ln(TAG, "Serial RECV << " + getHEXformatted2(buff, len));
       mqtt_client.publish(ha_serial_recv_topic.c_str(), buff, len);
       // }

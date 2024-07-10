@@ -1,6 +1,8 @@
 /*
   Daikin2mqtt - Daikin Heat Pump to MQTT control for Home Assistant.
-  Copyright (c) 2019 gysmo38, dzungpv, shampeon, endeavour, jascdk, chrdavis, alekslyse.  All right reserved.
+  Copyright (c) 2024 - MaxMacSTN
+  
+  Based on Mitsubishi2MQTT by gysmo38, dzungpv, shampeon, endeavour, jascdk, chrdavis, alekslyse.  All right reserved.
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
   License as published by the Free Software Foundation; either
@@ -13,7 +15,6 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-
 //Main Menu
 const char txt_control[] PROGMEM = "控制";
 const char txt_setup[] PROGMEM = "设置";
