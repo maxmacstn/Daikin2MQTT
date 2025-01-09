@@ -1,1 +1,1 @@
-esptool.py --chip esp32s3 --port /dev/cu.usbmodem* --baud 460800 --after hard_reset write_flash 0x00 /Users/maxmac/Data/Projects/S21KIT/Daikin2MQTT/bin\ releases/Daikin2MQTT_1_0_merged.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodem* --baud 460800 --after hard_reset write_flash 0x00 /Users/maxmac/Data/Projects/AC-Controller/WiFiKit-Serial/Daikin2MQTT/bin\ releases/Daikin2MQTT_1_X_merged.bin

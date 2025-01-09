@@ -42,11 +42,11 @@ const char txt_login[] PROGMEM = "LOGIN";
 const char txt_f_on[] PROGMEM = "ON";
 const char txt_f_off[] PROGMEM = "OFF";
 const char txt_f_auto[] PROGMEM = "AUTO";
+const char txt_f_quiet[] PROGMEM = "QUIET";
 const char txt_f_heat[] PROGMEM = "HEAT";
 const char txt_f_dry[] PROGMEM = "DRY";
 const char txt_f_cool[] PROGMEM = "COOL";
 const char txt_f_fan[] PROGMEM = "FAN";
-const char txt_f_quiet[] PROGMEM = "QUIET";
 const char txt_f_speed[] PROGMEM = "SPEED";
 const char txt_f_swing[] PROGMEM = "SWING";
 const char txt_f_hold[] PROGMEM = "HOLD";
@@ -61,6 +61,8 @@ const char txt_f_45s[] PROGMEM = "45 seconds";
 const char txt_f_60s[] PROGMEM = "60 seconds";
 const char txt_f_beep_on[] PROGMEM = "ON";
 const char txt_f_beep_off[] PROGMEM = "OFF";
+const char txt_f_led_on[] PROGMEM = "ON";
+const char txt_f_led_off[] PROGMEM = "OFF";
 
 //Page Reboot, save & Resseting
 const char txt_m_reboot[] PROGMEM = "Rebooting... Refresh in";
@@ -95,8 +97,8 @@ const char txt_status_disconnect[] PROGMEM = "DISCONNECTED";
 //Page WIFI
 const char txt_wifi_title[] PROGMEM = "WIFI Parameters";
 const char txt_wifi_hostname[] PROGMEM = "Hostname";
-const char txt_wifi_SSID[] PROGMEM = "SSID";
-const char txt_wifi_psk[] PROGMEM = "PSK";
+const char txt_wifi_SSID[] PROGMEM = "Wi-Fi SSID";
+const char txt_wifi_psk[] PROGMEM = "Wi-Fi Password";
 const char txt_wifi_otap[] PROGMEM = "OTA Password";
 
 //Page Control
@@ -119,6 +121,7 @@ const char txt_unit_update_interval[] PROGMEM = "Update interval";
 const char txt_unit_modes[] PROGMEM = "Mode support";
 const char txt_unit_password[] PROGMEM = "Web password";
 const char txt_unit_beep[] PROGMEM = "Beep";
+const char txt_unit_led[] PROGMEM = "LED";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "Authentication";

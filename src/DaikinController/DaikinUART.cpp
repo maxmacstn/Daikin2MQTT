@@ -93,8 +93,11 @@ bool DaikinUART::testX50Protocol()
 
   bool res = true;
   uint8_t testData[] = {0x01};
+  delay(1000);
   res = sendCommandX50(0xAA, testData, 1);
-  // res = sendCommandX50(0xBA, NULL, 0);
+  if(res){
+    res &= checkX50ready();
+  } 
   return res;
 }
 
@@ -102,6 +105,21 @@ bool DaikinUART::testS21Protocol(){
   _serial->begin(S21_BAUD_RATE, S21_SERIAL_CONFIG);
   _serial->setTimeout(SERIAL_TIMEOUT);
   return sendCommandS21('F','1');
+}
+
+bool DaikinUART::checkX50ready(){
+    uint8_t validPayload[] = {0x06, 0x01};
+    uint8_t cmd = lastResponse.cmd1;
+    uint8_t payloadSize = lastResponse.dataSize;
+
+    if (payloadSize == 1 &&  lastResponse.data[0] == 0x01 ){
+      Log.ln(TAG,String("X50 ready"));
+      return true;
+    }
+    else{
+      Log.ln(TAG,String("X50 NOT ready"));
+      return false;
+    }
 }
 
 
@@ -153,12 +171,11 @@ bool DaikinUART::sendCommandX50(uint8_t cmd, uint8_t *payload, uint8_t payloadLe
   if (payload != nullptr && payloadLen){
     memcpy(buf + 5, payload, payloadLen);
   }
-  
   //Calculate checksum
-  uint8_t c = 0;
-  for (int i = 0; i < 5 + payloadLen; i++)
-    c += buf[i];
-  buf[5 + payloadLen] = 0xFF - c;
+  // uint8_t c = 0;
+  // for (int i = 0; i < 5 + payloadLen; i++)
+  //   c += buf[i];
+  buf[5 + payloadLen] = X50Checksum(buf, 5+ payloadLen);;
   len = 6 + payloadLen;
 
   // Send payload

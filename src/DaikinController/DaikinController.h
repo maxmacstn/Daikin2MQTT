@@ -57,6 +57,7 @@ enum class DaikinFanMode : uint8_t
   Speed3 = '5',
   Speed4 = '6',
   Speed5 = '7',
+  Quiet = 'B'
 };
 
 struct HVACSettings
@@ -75,11 +76,19 @@ struct HVACStatus
   float roomTemperature;
   float outsideTemperature;
   float coilTemperature;
+  float energyMeter;
   int fanRPM;
   bool operating; // if true, the heatpump is operating to reach the desired temperature
   int compressorFrequency;
   String modelName;
+  String errorCode;
 };
+
+const char X50errorCodeDivision[] = { ' ', 'A', 'C', 'E', 'H', 'F', 'J', 'L', 'P', 'U', 'M', '6', '8', '9', ' ',' '};
+const char X50errorCodeDetail[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'H', 'C', 'J', 'E', 'F'};
+
+const char S21errorCodeDivision[] = {' ', ' ', ' ', 'A', 'C', 'E', 'H', 'F', 'J', 'L', 'P', 'U', 'M', '6', '8', '9'};
+const char S21errorCodeDetail[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'H', 'C', 'J', 'E', 'F'};
 
 #define SETTINGS_CHANGED_CALLBACK_SIGNATURE std::function<void()> settingsChangedCallback
 #define STATUS_CHANGED_CALLBACK_SIGNATURE std::function<void(HVACStatus newStatus)> statusChangedCallback
@@ -149,6 +158,7 @@ private:
   PendingSettings pendingSettings = {false, false};
 
   unsigned long lastSyncMs = 0;
+  bool use_RG_fan = false;
 
   SETTINGS_CHANGED_CALLBACK_SIGNATURE{nullptr};
   STATUS_CHANGED_CALLBACK_SIGNATURE{nullptr};
@@ -159,6 +169,14 @@ private:
   int lookupByteMapIndex(const char *valuesMap[], int len, const char *lookupValue);
   int lookupByteMapIndex(const int valuesMap[], int len, int lookupValue);
   void onFirstQuerySuccess();
+
+  uint16_t s21_decode_hex_sensor (const unsigned char *payload) //Copied from Faikin
+  {
+  #define hex(c)	(((c)&0xF)+((c)>'9'?9:0))
+    return (hex (payload[3]) << 12) | (hex (payload[2]) << 8) | (hex (payload[1]) << 4) | hex (payload[0]);
+  #undef hex
+  }
+
 };
 
 // #endif

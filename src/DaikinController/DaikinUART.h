@@ -72,13 +72,16 @@ enum
 
 const String S21queryCmds[] = {
   "F1", 
-  "F5", 
+  "F4", 
+  "F5", //Error code
   // "F9",
   "RH", 
   "RI", 
   "Ra", 
   "RL", 
-  "Rd"
+  "Rd",
+  "RG", //Quiet Fan
+  "FM"  //Energy Meter
   };
 
 const String S21setCmds[] = {
@@ -124,6 +127,7 @@ private:
   uint8_t X50Checksum(uint8_t *bytes, uint8_t len);
   bool checkResponseX50(uint8_t cmd, uint8_t *buff, uint8_t size);
   int checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buff, uint8_t size);
+  bool checkX50ready();
 
 
 

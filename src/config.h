@@ -17,7 +17,7 @@
 */
 
 
-const PROGMEM char* dk2mqtt_version = "1.0";
+const PROGMEM char* dk2mqtt_version = "1.2-b2";
 
 //Define global variables for files
 const PROGMEM char* wifi_conf = "/wifi.json";
@@ -58,6 +58,11 @@ const PROGMEM char* HA_turbine_icon = "mdi:turbine";
 const PROGMEM char* HA_sine_wave_icon = "mdi:sine-wave";
 const PROGMEM char* HA_vane_vertical_icon = "mdi:arrow-up-down";
 const PROGMEM char* HA_vane_horizontal_icon = "mdi:arrow-left-right";
+const PROGMEM char* HA_led = "mdi:wall-sconce-flat-variant";
+const PROGMEM char* HA_beep = "mdi:volume-high";
+const PROGMEM char* HA_counter = "mdi:counter";
+const PROGMEM char* HA_alert = "mdi:alert-circle";
+
 
 //Define global variables for Others settings
 bool others_haa;
@@ -73,6 +78,8 @@ String ha_fan_set_topic;
 String ha_vane_set_topic;
 String ha_wideVane_set_topic;
 String ha_settings_topic;
+String ha_unit_settings_topic;
+
 String ha_state_topic;
 String ha_debug_topic;
 String ha_serial_recv_topic;
@@ -84,12 +91,19 @@ String ha_sensor_outside_temp_config_topic;
 String ha_sensor_inside_coil_temp_config_topic;
 String ha_sensor_fan_rpm_temp_config_topic;
 String ha_sensor_comp_freq_config_topic;
+String ha_sensor_error_code_config_topic;
+String ha_sensor_energy_meter_config_topic;
 String ha_select_vane_vertical_config_topic;
 String ha_select_vane_horizontal_config_topic;
+String ha_switch_unit_led_config_topic;
+String ha_switch_unit_beep_config_topic;
+
 String ha_discovery_topic;
 String ha_custom_packet_s21;
 String ha_custom_query_experimental;
 String ha_availability_topic;
+String ha_switch_unit_led_set_topic;
+String ha_switch_unit_beep_set_topic;
 String hvac_name;
 
 //login
@@ -131,6 +145,8 @@ bool supportHeatMode = false;
 #define BTN_1 0
 #define BUZZER 14
 #define BUZZER_FREQ 4000
+#define PIN_AC_TX 43
+#define PIN_AC_RX 44
 
 //Buzzer settings
 enum Buzzer_preset{
@@ -139,3 +155,4 @@ enum Buzzer_preset{
   OFF
 };
 bool beep = true;
+bool ledEnabled = true; 
