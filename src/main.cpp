@@ -437,10 +437,9 @@ void saveOthers(String haa, String haat, String availability_report, String debu
   configFile.close();
 }
 
-bool saveUnitFeedback(bool beepEnabled, bool ledEnabled){
+void saveUnitFeedback(bool beepEnabled, bool ledEnabled){
 
   saveUnit(useFahrenheit?"fah":"cel",  supportHeatMode?"all":"nht", String(update_int/1000), login_password, String(min_temp), String(max_temp), temp_step, beep?"1":"0", ledEnabled?"1":"0");
-  return true;
 }
 
 // Initialize captive portal page
