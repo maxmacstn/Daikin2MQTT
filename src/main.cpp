@@ -1553,6 +1553,19 @@ void handleAPILogs()
   }
 }
 
+void handleAPIACStatus()
+{
+  if (!checkLogin())
+    return;
+
+  if (server.method() == HTTP_GET)
+  {
+    String jsonOutput;
+    serializeJson(rootInfo, jsonOutput);
+    server.send(200, F("application/json"), jsonOutput);
+  }
+}
+
 void write_log(String log)
 {
   File logFile = SPIFFS.open(console_file, "a");
@@ -2751,6 +2764,7 @@ void setup()
     server.on("/others", handleOthers);
     server.on("/logging", handleLogging);
     server.on("/api/logs", handleAPILogs);
+    server.on("/api/acstatus", handleAPIACStatus);
     server.on("/init", handleInitSetup); // for testing
     server.onNotFound(handleNotFound);
 
