@@ -570,8 +570,8 @@ bool loadUnit()
   update_int = doc["update_int"].as<uint8_t>() * 1000;
   // mode
   String supportMode = doc["support_mode"].as<String>();
-  if (supportMode == "nht")
-    supportHeatMode = false;
+  if (supportMode == "all")
+    supportHeatMode = true;
   // prevent login password is "null" if not exist key
   if (doc.containsKey("login_password"))
   {
@@ -1560,6 +1560,7 @@ void handleAPIACStatus()
 
   if (server.method() == HTTP_GET)
   {
+    hpStatusChanged(ac.getStatus());
     String jsonOutput;
     serializeJson(rootInfo, jsonOutput);
     server.send(200, F("application/json"), jsonOutput);
@@ -2973,7 +2974,7 @@ void loop()
   }
 
     //Handle ACT LED
-  if (!mqttOK ){
+  if (!mqttOK && mqtt_config ){
     digitalWrite(LED_ACT,HIGH);
   }else{
     digitalWrite(LED_ACT,LOW);
