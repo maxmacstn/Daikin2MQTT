@@ -63,11 +63,17 @@ function check(){
 
     <b>_TXT_MQTT_FN_</b>
             <br/>
-            <input id='fn' name='fn' 
-            autocomplete='off' autocorrect='off' autocapitalize='off' spellcheck='false' 
+            <input id='fn' name='fn'
+            autocomplete='off' autocorrect='off' autocapitalize='off' spellcheck='false'
             placeholder=' ' value='_MQTT_FN_'>
         </p>
         <p id="text_invalid_name" style="color:red; display:none;">Invalid Name!</p>
+        <p><b>_TXT_MQTT_DEVICE_NAME_</b>
+            <br/>
+            <input id='dn' name='dn'
+            autocomplete='off' autocorrect='off' autocapitalize='off' spellcheck='false'
+            placeholder='Daikin Living Room' value='_MQTT_DEVICE_NAME_'>
+        </p>
         <p><b>_TXT_MQTT_HOST_</b>
             <br/>
             <input id='mh' name='mh' 

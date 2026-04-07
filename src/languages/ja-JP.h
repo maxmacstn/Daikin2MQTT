@@ -1,7 +1,7 @@
 /*
   Daikin2mqtt - Daikin Heat Pump to MQTT control for Home Assistant.
   Copyright (c) 2024 - MaxMacSTN
-  
+
   Based on Mitsubishi2MQTT by gysmo38, dzungpv, shampeon, endeavour, jascdk, chrdavis, alekslyse.  All right reserved.
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -28,13 +28,16 @@ const char txt_MQTT[] PROGMEM = "MQTT";
 const char txt_WIFI[] PROGMEM = "WIFI";
 const char txt_unit[] PROGMEM = "エアコン本体";
 const char txt_others[] PROGMEM = "その他";
+const char txt_logging[] PROGMEM = "ログ";
 const char txt_reset[] PROGMEM = "初期化";
+const char txt_reset_confirm[] PROGMEM = "本当にリセットしますか？";
 
 //Buttons
 const char txt_back[] PROGMEM = "戻る";
 const char txt_save[] PROGMEM = "保存して再起動";
 const char txt_logout[] PROGMEM = "ログアウト";
 const char txt_upgrade[] PROGMEM = "アップデート開始";
+const char txt_login[] PROGMEM = "ログイン";
 
 //Form choices
 const char txt_f_on[] PROGMEM = "オン";
@@ -47,16 +50,21 @@ const char txt_f_fan[] PROGMEM = "送風";
 const char txt_f_quiet[] PROGMEM = "静";
 const char txt_f_speed[] PROGMEM = "風速";
 const char txt_f_swing[] PROGMEM = "スイング";
-const char txt_f_pos[] PROGMEM = "風向";
+const char txt_f_hold[] PROGMEM = "固定";
 const char txt_f_celsius[] PROGMEM = "摂氏";
 const char txt_f_fh[] PROGMEM = "華氏";
 const char txt_f_allmodes[] PROGMEM = "全ての機能";
 const char txt_f_noheat[] PROGMEM = "暖房以外の全ての機能";
 const char txt_f_5s[] PROGMEM = "5秒 (experimental)";
+const char txt_f_10s[] PROGMEM = "10秒";
 const char txt_f_15s[] PROGMEM = "15秒";
 const char txt_f_30s[] PROGMEM = "30秒";
 const char txt_f_45s[] PROGMEM = "45秒";
 const char txt_f_60s[] PROGMEM = "60秒";
+const char txt_f_beep_on[] PROGMEM = "ON";
+const char txt_f_beep_off[] PROGMEM = "OFF";
+const char txt_f_led_on[] PROGMEM = "ON";
+const char txt_f_led_off[] PROGMEM = "OFF";
 
 //Page Reboot, save & Resseting
 const char txt_m_reboot[] PROGMEM = "再起動中";
@@ -65,7 +73,8 @@ const char txt_m_save[] PROGMEM = "設定を保存し、再起動中";
 
 //Page MQTT
 const char txt_mqtt_title[] PROGMEM = "MQTT設定";
-const char txt_mqtt_fn[] PROGMEM = "フレンドリー名";
+const char txt_mqtt_fn[] PROGMEM = "トピックID";
+const char txt_mqtt_device_name[] PROGMEM = "デバイス名（HAに表示）";
 const char txt_mqtt_host[] PROGMEM = "ホスト";
 const char txt_mqtt_port[] PROGMEM = "ポート（初期値 1883）";
 const char txt_mqtt_user[] PROGMEM = "ユーザー名";
@@ -114,6 +123,11 @@ const char txt_unit_steptemp[] PROGMEM = "設定温度単位";
 const char txt_unit_modes[] PROGMEM = "対応機能";
 const char txt_unit_update_interval[] PROGMEM = "アップデート間隔";
 const char txt_unit_password[] PROGMEM = "Webパスワード";
+const char txt_unit_beep[] PROGMEM = "ビープ音";
+const char txt_unit_led[] PROGMEM = "LED";
+const char txt_unit_inside_offset[] PROGMEM = "室内温度オフセット";
+const char txt_unit_outside_offset[] PROGMEM = "室外温度オフセット";
+const char txt_unit_fan_levels[] PROGMEM = "ファン速度レベル";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "ログイン";
@@ -141,5 +155,8 @@ const char txt_upload_refresh[] PROGMEM = "再読込中";
 
 //Page Init
 const char txt_init_title[] PROGMEM = "初期設定";
-const char txt_init_reboot_mes[] PROGMEM = "Rebooting and connecting to your WiFi network! You should see it listed in on your access point.";
-const char txt_init_reboot[] PROGMEM = "Rebooting...";
+const char txt_init_reboot_mes[] PROGMEM = "再起動してWiFiネットワークに接続します。アクセスポイントのリストに表示されるはずです。";
+const char txt_init_reboot[] PROGMEM = "再起動中...";
+
+//Page logging
+const char txt_logging_title[] PROGMEM = "ログ";

@@ -25,19 +25,9 @@
 #include "logger.h"
  
 
-#define STX 2
-#define ETX 3
-#define ACK 6
-#define NAK 21
-
 #define S21_RESPONSE_TIMEOUT 250
 
 #define SYNC_INTEVAL 10000
-
-#define S21_BAUD_RATE 2400
-#define S21_STOP_BITS 2
-#define S21_DATA_BITS 8
-#define S21_PARITY uart::UART_CONFIG_PARITY_EVEN
 
 enum class DaikinClimateMode : uint8_t
 {
@@ -84,6 +74,11 @@ struct HVACStatus
   int compressorFrequency;
   String modelName;
   String errorCode;
+  uint8_t timerMode;
+  float realTargetTemp;   // RX — adjusted setpoint
+  float louverAngle;      // RN — measured louver angle
+  int onTimerMinutes;     // RD — ON timer (minutes)
+  int offTimerMinutes;    // RE — OFF timer (minutes)
 };
 
 const char X50errorCodeDivision[] = { ' ', 'A', 'C', 'E', 'H', 'F', 'J', 'L', 'P', 'U', 'M', '6', '8', '9', ' ',' '};
@@ -93,7 +88,7 @@ const char S21errorCodeDivision[] = {' ', ' ', ' ', 'A', 'C', 'E', 'H', 'F', 'J'
 const char S21errorCodeDetail[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'H', 'C', 'J', 'E', 'F'};
 
 #define SETTINGS_CHANGED_CALLBACK_SIGNATURE std::function<void()> settingsChangedCallback
-#define STATUS_CHANGED_CALLBACK_SIGNATURE std::function<void(HVACStatus newStatus)> statusChangedCallback
+#define STATUS_CHANGED_CALLBACK_SIGNATURE std::function<void(const HVACStatus &newStatus)> statusChangedCallback
 
 class DaikinController
 {
@@ -132,12 +127,32 @@ public:
   String daikin_climate_mode_to_string(DaikinClimateMode mode);
   String daikin_fan_mode_to_string(DaikinFanMode mode);
 
-  // status
-  HVACStatus getStatus() { return this->currentStatus; };
-  HVACSettings getSettings() { return currentSettings; };
+  // Status accessors (const ref to avoid struct copies in 10s poll loop)
+  const HVACStatus& getStatus() { return this->currentStatus; };
+  const HVACSettings& getSettings() { return currentSettings; };
   float getRoomTemperature() { return this->currentStatus.roomTemperature; };
   bool isConnected() { return daikinUART->isConnected(); };
-  // bool is_power_on() { return this->power_on; }
+
+  // Capability detection — checked by haConfig() to conditionally expose HA entities.
+  // Most use s21SkipMask: if the S21 query command was NAK'd, the feature isn't supported.
+  // Some use runtime detection (compressor freq, outside temp) because the command ACKs
+  // but returns meaningless data on certain models (e.g., Rd always returns 000 on v0 units).
+  bool supportsPowerful() { return !(s21SkipMask & (1 << S21_QUERY_F6)); };
+  bool supportsVerticalSwing() { return _supportsVerticalSwing; };  // from F2 capability flags
+  bool supportsHorizontalSwing() { return _supportsHorizontalSwing; }; // from F2 capability flags
+  bool supportsEnergyMeter() { return !(s21SkipMask & (1 << S21_QUERY_FM)); };
+  bool supportsCompressorFreq() { return _compressorFreqSeen; };  // true once Rd returns non-zero
+  bool supportsOutsideTemp() { return _outsideTempChanged; };     // true once Ra returns a different value
+  bool supportsRealTargetTemp() { return !(s21SkipMask & (1 << S21_QUERY_RX)); };
+  bool supportsLouverAngle() { return !(s21SkipMask & (1 << S21_QUERY_RN)); };
+  bool supportsOnTimer() { return !(s21SkipMask & (1 << S21_QUERY_RD)); };
+  bool supportsOffTimer() { return !(s21SkipMask & (1 << S21_QUERY_RE)); };
+
+  // Runtime rediscovery — when a new capability is detected after initial haConfig(),
+  // this flag triggers republishing HA discovery so the new entity appears without reboot.
+  bool needsRediscovery() { return _rediscoverNeeded; };
+  void clearRediscovery() { _rediscoverNeeded = false; };
+
   bool setBasic(HVACSettings *newSetting);
   bool readState();
 
@@ -147,25 +162,56 @@ public:
   void setStatusChangedCallback(STATUS_CHANGED_CALLBACK_SIGNATURE);
 
 private:
-  struct PendingSettings 
+  struct PendingSettings
   {
     bool basic;
     bool vane;
     bool specialMode;
     bool ACconfig;
+    bool hasPending() const { return basic || vane || specialMode || ACconfig; }
   };
 
   HardwareSerial *_serial{nullptr};
 
   HVACStatus currentStatus{0, 0, 0, 0, 0, 0};
-  HVACSettings currentSettings{"OFF", "COOL", 25.0, "AUTO", "HOLD", "HOLD", "OFF",true};
-  HVACSettings newSettings{"OFF", "COOL", 25.0, "AUTO", "HOLD", "HOLD","OFF", true}; // Mock data
+  HVACSettings currentSettings{"OFF", "COOL", 25.0, "auto", "hold", "hold", "OFF", true};
+  HVACSettings newSettings{"OFF", "COOL", 25.0, "auto", "hold", "hold", "OFF", true};
 
   // Temporary setting value.
-  PendingSettings pendingSettings = {false, false, false};
+  PendingSettings pendingSettings = {false, false, false, false};
 
   unsigned long lastSyncMs = 0;
-  bool use_RG_fan = false;
+  bool use_RG_fan = false;     // true once RG returns valid fan speed (overrides F1 byte 3)
+
+  // S21 command skip mask — one bit per entry in S21queryCmds[].
+  // Set when a command returns NAK (unsupported by this unit).
+  // Checked in sync() to avoid re-sending unsupported commands.
+  // Also used by supportsX() methods to gate HA entity discovery.
+  uint32_t s21SkipMask = 0;
+
+  // Hardware capabilities detected from F2 response (one-shot query at first sync).
+  // Defaults are true so entities appear if F2 isn't supported (safe fallback).
+  bool _supportsVerticalSwing = true;
+  bool _supportsHorizontalSwing = true;
+
+  bool _skipRzB2 = false;  // RzB2 is not in the query array, needs its own skip flag
+
+  // Runtime value-change detection for sensors that ACK but return bogus data.
+  // Compressor freq: some v0 units always return 000 even when compressor is running.
+  // Outside temp: some units return a fixed 25.0°C regardless of actual temperature.
+  // These entities are hidden until we see meaningful (changing/non-zero) values,
+  // then _rediscoverNeeded triggers haConfig() republish to add the entity to HA.
+  bool _compressorFreqSeen = false;
+  bool _outsideTempChanged = false;
+  float _firstOutsideTemp = -999;
+  bool _rediscoverNeeded = false;
+
+  // Copy currentSettings → newSettings, preserving fields S21 doesn't report back.
+  void syncNewSettings() {
+    bool savedRemoteEnable = newSettings.remoteEnable;
+    newSettings = currentSettings;
+    newSettings.remoteEnable = savedRemoteEnable;
+  }
 
   SETTINGS_CHANGED_CALLBACK_SIGNATURE{nullptr};
   STATUS_CHANGED_CALLBACK_SIGNATURE{nullptr};

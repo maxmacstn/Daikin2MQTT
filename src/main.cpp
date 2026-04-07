@@ -64,7 +64,12 @@ unsigned int hpConnectionTotalRetries;
 bool firstSync = true;
 
 // Local state
-StaticJsonDocument<JSON_OBJECT_SIZE(256)> rootInfo;
+JsonDocument rootInfo;
+
+// Unit settings change detection (init to opposite to force first publish)
+bool lastBeep = false;
+bool lastLedEnabled = false;
+bool lastRemoteEnabled = false;
 
 // Web OTA
 int uploaderror = 0;
@@ -91,11 +96,13 @@ bool connectWifi();
 bool checkLogin();
 float convertCelsiusToLocalUnit(float temperature, bool isFahrenheit);
 float convertLocalUnitToCelsius(float temperature, bool isFahrenheit);
-HVACSettings change_states(HVACSettings settings);
+void change_states();
 String getTemperatureScale();
 bool is_authenticated();
-String hpGetMode(HVACSettings hvacSettings);
-void hpStatusChanged(HVACStatus currentStatus);
+String hpGetMode(const HVACSettings &hvacSettings);
+void haConfig();
+String hpGetAction(const HVACStatus &hpStatus, const HVACSettings &hpSettings);
+void hpStatusChanged(const HVACStatus &currentStatus);
 void playBeep(Buzzer_preset buzzer_preset);
 void updateUnitSettings();
 void testMode()
@@ -240,20 +247,6 @@ void wifiFactoryReset()
 
 }
 
-String getHEXformatted2(uint8_t *bytes, size_t len)
-{
-  String res;
-  char buf[5];
-  for (size_t i = 0; i < len; i++)
-  {
-    if (i > 0)
-      res += ':';
-    sprintf(buf, "%02X", bytes[i]);
-    res += buf;
-  }
-  return res;
-}
-
 bool loadWifi()
 {
   ap_ssid = "";
@@ -279,14 +272,13 @@ bool loadWifi()
   // Allocate a buffer to store contents of the file.
   std::unique_ptr<char[]> buf(new char[size]);
   configFile.readBytes(buf.get(), size);
-  const size_t capacity = JSON_OBJECT_SIZE(4) + 130;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc;
   deserializeJson(doc, buf.get());
   hostname = doc["hostname"].as<String>();
   ap_ssid = doc["ap_ssid"].as<String>();
   ap_pwd = doc["ap_pwd"].as<String>();
   // prevent ota password is "null" if not exist key
-  if (doc.containsKey("ota_pwd"))
+  if (doc["ota_pwd"].is<JsonVariant>())
   {
     ota_pwd = doc["ota_pwd"].as<String>();
   }
@@ -330,11 +322,10 @@ void playBeep(Buzzer_preset buzzer_p)
 }
 
 void saveMqtt(String mqttFn, String mqttHost, String mqttPort, String mqttUser,
-              String mqttPwd, String mqttTopic)
+              String mqttPwd, String mqttTopic, String mqttDeviceName)
 {
 
-  const size_t capacity = JSON_OBJECT_SIZE(6) + 400;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc;
   // if mqtt port is empty, we use default port
   if (mqttPort[0] == '\0')
     mqttPort = "1883";
@@ -344,6 +335,7 @@ void saveMqtt(String mqttFn, String mqttHost, String mqttPort, String mqttUser,
   doc["mqtt_user"] = mqttUser;
   doc["mqtt_pwd"] = mqttPwd;
   doc["mqtt_topic"] = mqttTopic;
+  doc["mqtt_device_name"] = mqttDeviceName;
   File configFile = SPIFFS.open(mqtt_conf, "w");
   if (!configFile)
   {
@@ -353,9 +345,9 @@ void saveMqtt(String mqttFn, String mqttHost, String mqttPort, String mqttUser,
   configFile.close();
 }
 
-void saveUnit(String tempUnit, String supportMode, String updateInterval, String loginPassword, String minTemp, String maxTemp, String tempStep, String beep, String ledEnabled)
+void saveUnit(String tempUnit, String supportMode, String updateInterval, String loginPassword, String minTemp, String maxTemp, String tempStep, String beep, String ledEnabled, String insideTempOffset, String outsideTempOffset, String fanSpeedLevels)
 {
-  StaticJsonDocument<256> doc;
+  JsonDocument doc;
   // if temp unit is empty, we use default celcius
   if (tempUnit.isEmpty())
     tempUnit = "cel";
@@ -391,6 +383,9 @@ void saveUnit(String tempUnit, String supportMode, String updateInterval, String
   doc["ledEnabled"] = ledEnabled;
 
   doc["login_password"] = loginPassword;
+  doc["inside_temp_offset"] = insideTempOffset.isEmpty() ? "0" : insideTempOffset;
+  doc["outside_temp_offset"] = outsideTempOffset.isEmpty() ? "0" : outsideTempOffset;
+  doc["fan_speed_levels"] = fanSpeedLevels.isEmpty() ? "3" : fanSpeedLevels;
   File configFile = SPIFFS.open(unit_conf, "w");
   if (!configFile)
   {
@@ -403,8 +398,7 @@ void saveUnit(String tempUnit, String supportMode, String updateInterval, String
 
 void saveWifi(String apSsid, String apPwd, String hostName, String otaPwd)
 {
-  const size_t capacity = JSON_OBJECT_SIZE(4) + 130;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc;
   doc["ap_ssid"] = apSsid;
   doc["ap_pwd"] = apPwd;
   doc["hostname"] = hostName;
@@ -421,8 +415,7 @@ void saveWifi(String apSsid, String apPwd, String hostName, String otaPwd)
 
 void saveOthers(String haa, String haat, String availability_report, String debug)
 {
-  const size_t capacity = JSON_OBJECT_SIZE(4) + 130;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc;
   doc["haa"] = haa;
   doc["haat"] = haat;
   doc["avail_report"] = availability_report;
@@ -439,7 +432,7 @@ void saveOthers(String haa, String haat, String availability_report, String debu
 
 void saveUnitFeedback(bool beepEnabled, bool ledEnabled){
 
-  saveUnit(useFahrenheit?"fah":"cel",  supportHeatMode?"all":"nht", String(update_int/1000), login_password, String(min_temp), String(max_temp), temp_step, beep?"1":"0", ledEnabled?"1":"0");
+  saveUnit(useFahrenheit?"fah":"cel",  supportHeatMode?"all":"nht", String(update_int/1000), login_password, String(min_temp), String(max_temp), temp_step, beep?"1":"0", ledEnabled?"1":"0", String(inside_temp_offset, 1), String(outside_temp_offset, 1), String(fan_speed_levels));
 }
 
 // Initialize captive portal page
@@ -513,8 +506,7 @@ bool loadMqtt()
   std::unique_ptr<char[]> buf(new char[size]);
 
   configFile.readBytes(buf.get(), size);
-  const size_t capacity = JSON_OBJECT_SIZE(6) + 400;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc;
   deserializeJson(doc, buf.get());
   mqtt_fn = doc["mqtt_fn"].as<String>();
   mqtt_server = doc["mqtt_host"].as<String>();
@@ -522,6 +514,7 @@ bool loadMqtt()
   mqtt_username = doc["mqtt_user"].as<String>();
   mqtt_password = doc["mqtt_pwd"].as<String>();
   mqtt_topic = doc["mqtt_topic"].as<String>();
+  mqtt_device_name = doc["mqtt_device_name"].as<String>();
 
   // write_log("=== START DEBUG MQTT ===");
   // write_log("Friendly Name" + mqtt_fn);
@@ -557,9 +550,7 @@ bool loadUnit()
   std::unique_ptr<char[]> buf(new char[size]);
 
   configFile.readBytes(buf.get(), size);
-  // const size_t capacity = JSON_OBJECT_SIZE(3) + 200;
-  // DynamicJsonDocument doc(capacity);
-  StaticJsonDocument<256> doc;
+  JsonDocument doc;
   deserializeJson(doc, buf.get());
   // unit
   String unit_tempUnit = doc["unit_tempUnit"].as<String>();
@@ -574,7 +565,7 @@ bool loadUnit()
   if (supportMode == "all")
     supportHeatMode = true;
   // prevent login password is "null" if not exist key
-  if (doc.containsKey("login_password"))
+  if (doc["login_password"].is<JsonVariant>())
   {
     login_password = doc["login_password"].as<String>();
   }
@@ -588,6 +579,13 @@ bool loadUnit()
 
   String ledEnabledStr = doc["ledEnabled"].as<String>();
   ledEnabled = ledEnabledStr == "1";
+
+  if (doc["inside_temp_offset"].is<JsonVariant>())
+    inside_temp_offset = doc["inside_temp_offset"].as<float>();
+  if (doc["outside_temp_offset"].is<JsonVariant>())
+    outside_temp_offset = doc["outside_temp_offset"].as<float>();
+  if (doc["fan_speed_levels"].is<JsonVariant>())
+    fan_speed_levels = doc["fan_speed_levels"].as<uint8_t>();
 
   return true;
 }
@@ -613,30 +611,16 @@ bool loadOthers()
   std::unique_ptr<char[]> buf(new char[size]);
 
   configFile.readBytes(buf.get(), size);
-  const size_t capacity = JSON_OBJECT_SIZE(3) + 200;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc;
   deserializeJson(doc, buf.get());
-  // unit
-  String unit_tempUnit = doc["unit_tempUnit"].as<String>();
-  if (unit_tempUnit == "fah")
-    useFahrenheit = true;
   others_haa_topic = doc["haat"].as<String>();
   String avail_report = doc["avail_report"].as<String>();
   String haa = doc["haa"].as<String>();
   String debug = doc["debug"].as<String>();
 
-  if (strcmp(haa.c_str(), "OFF") == 0)
-  {
-    others_haa = false;
-  }
-  if (strcmp(avail_report.c_str(), "OFF") == 0)
-  {
-    others_avail_report = false;
-  }
-  if (strcmp(debug.c_str(), "ON") == 0)
-  {
-    _debugMode = true;
-  }
+  others_haa = (strcmp(haa.c_str(), "OFF") != 0);
+  others_avail_report = (strcmp(avail_report.c_str(), "OFF") != 0);
+  _debugMode = (strcmp(debug.c_str(), "ON") == 0);
 
   return true;
 }
@@ -731,7 +715,7 @@ void handleSaveInit()
   if (server.method() == HTTP_POST)
   {
     saveWifi(server.arg("ssid"), server.arg("psk"), server.arg("hn"), server.arg("otapwd"));
-    saveMqtt(server.arg("fn"), server.arg("mh"), server.arg("ml"), server.arg("mu"), server.arg("mp"), server.arg("mt"));
+    saveMqtt(server.arg("fn"), server.arg("mh"), server.arg("ml"), server.arg("mu"), server.arg("mp"), server.arg("mt"), server.arg("dn"));
   }
   String initSavePage = FPSTR(html_init_save);
   initSavePage.replace("_TXT_INIT_REBOOT_MESS_", FPSTR(txt_init_reboot_mes));
@@ -805,6 +789,8 @@ void handleInitSetup()
   initSetupPage.replace("_TXT_MQTT_USER_", FPSTR(txt_mqtt_user));
   initSetupPage.replace("_TXT_MQTT_PASSWORD_", FPSTR(txt_mqtt_password));
   initSetupPage.replace("_TXT_MQTT_TOPIC_", FPSTR(txt_mqtt_topic));
+  initSetupPage.replace("_TXT_MQTT_DEVICE_NAME_", FPSTR(txt_mqtt_device_name));
+  initSetupPage.replace(F("_MQTT_DEVICE_NAME_"), "");
   initSetupPage.replace(F("_MQTT_FN_"), hostname);
   initSetupPage.replace(F("_MQTT_HOST_"), "");
   initSetupPage.replace(F("_MQTT_PORT_"), "");
@@ -921,7 +907,7 @@ void handleMqtt()
 
   if (server.method() == HTTP_POST)
   {
-    saveMqtt(server.arg("fn"), server.arg("mh"), server.arg("ml"), server.arg("mu"), server.arg("mp"), server.arg("mt"));
+    saveMqtt(server.arg("fn"), server.arg("mh"), server.arg("ml"), server.arg("mu"), server.arg("mp"), server.arg("mt"), server.arg("dn"));
     rebootAndSendPage();
   }
   else
@@ -936,6 +922,8 @@ void handleMqtt()
     mqttPage.replace("_TXT_MQTT_USER_", FPSTR(txt_mqtt_user));
     mqttPage.replace("_TXT_MQTT_PASSWORD_", FPSTR(txt_mqtt_password));
     mqttPage.replace("_TXT_MQTT_TOPIC_", FPSTR(txt_mqtt_topic));
+    mqttPage.replace("_TXT_MQTT_DEVICE_NAME_", FPSTR(txt_mqtt_device_name));
+    mqttPage.replace(F("_MQTT_DEVICE_NAME_"), mqtt_device_name);
     mqttPage.replace(F("_MQTT_FN_"), mqtt_fn);
     mqttPage.replace(F("_MQTT_HOST_"), mqtt_server);
     mqttPage.replace(F("_MQTT_PORT_"), String(mqtt_port));
@@ -953,7 +941,7 @@ void handleUnit()
 
   if (server.method() == HTTP_POST)
   {
-    saveUnit(server.arg("tu"), server.arg("md"), server.arg("update_int"), server.arg("lpw"), (String)convertLocalUnitToCelsius(server.arg("min_temp").toInt(), useFahrenheit), (String)convertLocalUnitToCelsius(server.arg("max_temp").toInt(), useFahrenheit), server.arg("temp_step"), server.arg("beep"), server.arg("led"));
+    saveUnit(server.arg("tu"), server.arg("md"), server.arg("update_int"), server.arg("lpw"), (String)convertLocalUnitToCelsius(server.arg("min_temp").toInt(), useFahrenheit), (String)convertLocalUnitToCelsius(server.arg("max_temp").toInt(), useFahrenheit), server.arg("temp_step"), server.arg("beep"), server.arg("led"), server.arg("inside_offset"), server.arg("outside_offset"), server.arg("fan_levels"));
     rebootAndSendPage();
   }
   else
@@ -976,6 +964,7 @@ void handleUnit()
     unitPage.replace("_TXT_F_ALLMODES_", FPSTR(txt_f_allmodes));
     unitPage.replace("_TXT_F_NOHEAT_", FPSTR(txt_f_noheat));
     unitPage.replace("_TXT_F_5_S", FPSTR(txt_f_5s));
+    unitPage.replace("_TXT_F_10_S", FPSTR(txt_f_10s));
     unitPage.replace("_TXT_F_15_S", FPSTR(txt_f_15s));
     unitPage.replace("_TXT_F_30_S", FPSTR(txt_f_30s));
     unitPage.replace("_TXT_F_45_S", FPSTR(txt_f_45s));
@@ -987,6 +976,15 @@ void handleUnit()
     unitPage.replace(F("_MIN_TEMP_"), String(convertCelsiusToLocalUnit(min_temp, useFahrenheit)));
     unitPage.replace(F("_MAX_TEMP_"), String(convertCelsiusToLocalUnit(max_temp, useFahrenheit)));
     unitPage.replace(F("_TEMP_STEP_"), String(temp_step));
+    unitPage.replace("_TXT_UNIT_INSIDE_OFFSET_", FPSTR(txt_unit_inside_offset));
+    unitPage.replace("_TXT_UNIT_OUTSIDE_OFFSET_", FPSTR(txt_unit_outside_offset));
+    unitPage.replace(F("_INSIDE_OFFSET_"), String(inside_temp_offset, 1));
+    unitPage.replace(F("_OUTSIDE_OFFSET_"), String(outside_temp_offset, 1));
+    unitPage.replace("_TXT_UNIT_FAN_LEVELS_", FPSTR(txt_unit_fan_levels));
+    if (fan_speed_levels == 5)
+      unitPage.replace(F("_FAN_5_"), F("selected"));
+    else
+      unitPage.replace(F("_FAN_3_"), F("selected"));
     // temp
     if (useFahrenheit)
       unitPage.replace(F("_TU_FAH_"), F("selected"));
@@ -1016,6 +1014,9 @@ void handleUnit()
     {
     case (5000):
       unitPage.replace(F("_UPDATE_5S_"), F("selected"));
+      break;
+    case (10000):
+      unitPage.replace(F("_UPDATE_10S_"), F("selected"));
       break;
     case (15000):
       unitPage.replace(F("_UPDATE_15S_"), F("selected"));
@@ -1132,10 +1133,8 @@ void handleControl()
     server.send(302);
     return;
   }
-  HVACSettings settings = ac.getSettings();
-
-  // memcpy(&settings, ac.getSettings(), sizeof(settings));
-  settings = change_states(settings);
+  change_states();
+  const HVACSettings &settings = ac.getSettings();
   String controlPage = FPSTR(html_page_control);
   String headerContent = FPSTR(html_common_header);
   String footerContent = FPSTR(html_common_footer);
@@ -1407,7 +1406,7 @@ void handleUploadDone()
     content += FPSTR(txt_upload_sucess);
     content += F("</span><br/><br/>");
     content += FPSTR(txt_upload_refresh);
-    content += F("<span id='count'>10s</span>...");
+    content += F(" <span id='count'>10s</span>...");
     content += FPSTR(count_down_script);
     restartflag = true;
   }
@@ -1568,14 +1567,7 @@ void handleAPIACStatus()
   }
 }
 
-void write_log(String log)
-{
-  File logFile = SPIFFS.open(console_file, "a");
-  logFile.println(log);
-  logFile.close();
-}
-
-HVACSettings change_states(HVACSettings settings)
+void change_states()
 {
 
   if (server.hasArg("CONNECT"))
@@ -1588,63 +1580,79 @@ HVACSettings change_states(HVACSettings settings)
     bool update = false;
     if (server.hasArg("POWER"))
     {
-      // String arg = server.arg("POWER");
-      // const char* argC = arg.c_str();
-      // Serial.printf("Arg = %s\n", argC);
-      settings.power = strdup(server.arg("POWER").c_str());
+      ac.setPowerSetting(server.arg("POWER").c_str());
       update = true;
     }
     if (server.hasArg("MODE"))
     {
-      // settings.mode = server.arg("MODE").c_str();
-      settings.mode = strdup(server.arg("MODE").c_str());
+      ac.setModeSetting(server.arg("MODE").c_str());
       update = true;
     }
     if (server.hasArg("TEMP"))
     {
-      settings.temperature = convertLocalUnitToCelsius(server.arg("TEMP").toFloat(), useFahrenheit);
+      ac.setTemperature(convertLocalUnitToCelsius(server.arg("TEMP").toFloat(), useFahrenheit));
       update = true;
     }
     if (server.hasArg("FAN"))
     {
-      settings.fan = strdup(server.arg("FAN").c_str());
+      ac.setFanSpeed(server.arg("FAN").c_str());
       update = true;
     }
     if (server.hasArg("VANE"))
     {
-      settings.verticalVane = strdup(server.arg("VANE").c_str());
+      ac.setVerticalVaneSetting(server.arg("VANE").c_str());
       update = true;
     }
     if (server.hasArg("WIDEVANE"))
     {
-      settings.horizontalVane = strdup(server.arg("WIDEVANE").c_str());
+      ac.setHorizontalVaneSetting(server.arg("WIDEVANE").c_str());
       update = true;
     }
     if (update)
     {
-      // Serial.printf("Set new basic %s %s %.2f %s %s %s \n", settings.power, settings.mode, settings.temperature, settings.fan, settings.verticalVane, settings.horizontalVane);
       digitalWrite(LED_ACT, HIGH);
       playBeep(SET);
-      ac.setBasic(&settings);
       ac.update(true);
       lastCommandSend = millis();
       digitalWrite(LED_ACT, LOW);
     }
   }
-  return settings;
+}
+
+void populateRootInfo(const HVACSettings &settings, const HVACStatus &status, bool fullStatus)
+{
+  rootInfo.clear();
+  rootInfo["temperature"] = convertCelsiusToLocalUnit(settings.temperature, useFahrenheit);
+  rootInfo["fan"] = settings.fan;
+  rootInfo["vane"] = settings.verticalVane;
+  rootInfo["wideVane"] = settings.horizontalVane;
+  rootInfo["mode"] = hpGetMode(settings);
+  rootInfo["powerful"] = settings.powerful;
+
+  if (fullStatus) {
+    rootInfo["roomTemperature"] = convertCelsiusToLocalUnit(status.roomTemperature + inside_temp_offset, useFahrenheit);
+    rootInfo["outsideTemperature"] = convertCelsiusToLocalUnit(status.outsideTemperature + outside_temp_offset, useFahrenheit);
+    rootInfo["internalCoilTemperature"] = convertCelsiusToLocalUnit(status.coilTemperature, useFahrenheit);
+    rootInfo["fanRPM"] = status.fanRPM;
+    rootInfo["action"] = hpGetAction(status, settings);
+    rootInfo["compressorFrequency"] = status.compressorFrequency;
+    rootInfo["errorCode"] = status.errorCode;
+    rootInfo["timerMode"] = status.timerMode == 0 ? "OFF" :
+                            status.timerMode == 1 ? "ON_TIMER" :
+                            status.timerMode == 2 ? "OFF_TIMER" : "BOTH";
+    rootInfo["realTargetTemp"] = convertCelsiusToLocalUnit(status.realTargetTemp, useFahrenheit);
+    rootInfo["louverAngle"] = status.louverAngle;
+    rootInfo["onTimerMinutes"] = status.onTimerMinutes;
+    rootInfo["offTimerMinutes"] = status.offTimerMinutes;
+    rootInfo["uptime"] = millis() / 1000;
+  }
 }
 
 void readHeatPumpSettings()
 {
-  HVACSettings currentSettings = ac.getSettings();
-
-  rootInfo.clear();
-  rootInfo["temperature"] = convertCelsiusToLocalUnit(currentSettings.temperature, useFahrenheit);
-  rootInfo["fan"] = currentSettings.fan;
-  rootInfo["vane"] = currentSettings.verticalVane;
-  rootInfo["wideVane"] = currentSettings.horizontalVane;
-  rootInfo["mode"] = hpGetMode(currentSettings);
-  rootInfo["powerful"] = currentSettings.powerful;
+  const HVACSettings &currentSettings = ac.getSettings();
+  HVACStatus emptyStatus;
+  populateRootInfo(currentSettings, emptyStatus, false);
 }
 
 void hpSettingsChanged()
@@ -1664,10 +1672,12 @@ void hpSettingsChanged()
   hpStatusChanged(ac.getStatus());
 }
 
-String hpGetMode(HVACSettings hvacSettings)
+// Map S21 mode to HA HVAC mode. Daikin reports mode byte '0' (DISABLED) when the
+// compressor is idle between cycles, even while the unit is ON and actively cooling.
+// We track the last real mode so HA doesn't flip to "off" during compressor pauses.
+String hpGetMode(const HVACSettings &hvacSettings)
 {
-  // Map the heat pump state to one of HA's HVAC_MODE_* values.
-  // https://github.com/home-assistant/core/blob/master/homeassistant/components/climate/const.py#L3-L23
+  static String lastActiveMode = "cool";
 
   String hppower = String(hvacSettings.power);
   if (hppower.equalsIgnoreCase("off"))
@@ -1678,15 +1688,23 @@ String hpGetMode(HVACSettings hvacSettings)
   String hpmode = String(hvacSettings.mode);
   hpmode.toLowerCase();
 
-  if (hpmode == "fan")
-    return "fan_only";
+  String result;
+  if (hpmode == "disabled")
+    result = lastActiveMode; // Unit is ON but mode byte is 0 — use last known mode
+  else if (hpmode == "fan")
+    result = "fan_only";
   else if (hpmode == "auto")
-    return "heat_cool";
+    result = "heat_cool";
   else
-    return hpmode; // cool, heat, dry
+    result = hpmode; // cool, heat, dry
+
+  if (hpmode != "disabled")
+    lastActiveMode = result;
+
+  return result;
 }
 
-String hpGetAction(HVACStatus hpStatus, HVACSettings hpSettings)
+String hpGetAction(const HVACStatus &hpStatus, const HVACSettings &hpSettings)
 {
   // Map heat pump state to one of HA's CURRENT_HVAC_* values.
   // https://github.com/home-assistant/core/blob/master/homeassistant/components/climate/const.py#L80-L86
@@ -1700,7 +1718,9 @@ String hpGetAction(HVACStatus hpStatus, HVACSettings hpSettings)
   String hpmode = String(hpSettings.mode);
   hpmode.toLowerCase();
 
-  if (hpmode == "fan")
+  if (hpmode == "disabled")
+    return "idle"; // Unit is ON but compressor idle
+  else if (hpmode == "fan")
     return "fan";
   else if (!hpStatus.operating)
     return "idle";
@@ -1716,35 +1736,20 @@ String hpGetAction(HVACStatus hpStatus, HVACSettings hpSettings)
     return hpmode; // unknown
 }
 
-void hpStatusChanged(HVACStatus currentStatus)
+void hpStatusChanged(const HVACStatus &currentStatus)
 {
   if ((millis() > (lastTempSend + update_int)) && (millis() > (lastCommandSend + POLL_DELAY_AFTER_SET_MS)))
   { // only send the temperature every update_int interval and not just sent command to A/C.
 
     // send room temp, operating info and all information
-    HVACSettings currentSettings = ac.getSettings();
+    const HVACSettings &currentSettings = ac.getSettings();
 
     if (currentStatus.roomTemperature == 0)
       return;
 
-    rootInfo.clear();
-
-    rootInfo["outsideTemperature"] = convertCelsiusToLocalUnit(currentStatus.outsideTemperature, useFahrenheit);
-    rootInfo["internalCoilTemperature"] = convertCelsiusToLocalUnit(currentStatus.coilTemperature, useFahrenheit);
-    rootInfo["temperature"] = convertCelsiusToLocalUnit(currentSettings.temperature, useFahrenheit);
-    rootInfo["fan"] = currentSettings.fan;
-    rootInfo["fanRPM"] = currentStatus.fanRPM;
-    rootInfo["roomTemperature"] = convertCelsiusToLocalUnit(currentStatus.roomTemperature, useFahrenheit);
-    rootInfo["vane"] = currentSettings.verticalVane;
-    rootInfo["wideVane"] = currentSettings.horizontalVane;
-    rootInfo["mode"] = hpGetMode(currentSettings);
-    rootInfo["action"] = hpGetAction(currentStatus, currentSettings);
-    rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
-    rootInfo["errorCode"] = currentStatus.errorCode;
-    rootInfo["powerful"] = currentSettings.powerful;
+    populateRootInfo(currentSettings, currentStatus, true);
 
     if (ac.daikinUART->currentProtocol() == PROTOCOL_S21 && currentStatus.energyMeter != 0.0){
-      // rootInfo["energyMeter"] = currentStatus.energyMeter;
       rootInfo["energyMeter"] = (int)(currentStatus.energyMeter * 100 + 0.5) / 100.0;
     }
     String mqttOutput;
@@ -1757,47 +1762,33 @@ void hpStatusChanged(HVACStatus currentStatus)
     }
 
     //Update unit setting (Beep & LED to MQTT as well)
-    updateUnitSettings(); 
+    updateUnitSettings();
+
+    // Republish HA discovery if new capabilities detected at runtime
+    if (others_haa && ac.needsRediscovery()) {
+      haConfig();
+      ac.clearRediscovery();
+    }
 
     lastTempSend = millis();
   }
 }
 
-void hpPacketDebug(byte *packet, unsigned int length, const char *packetDirection)
-{
-  if (_debugMode)
-  {
-    String message;
-    for (unsigned int idx = 0; idx < length; idx++)
-    {
-      if (packet[idx] < 16)
-      {
-        message += "0"; // pad single hex digits with a 0
-      }
-      message += String(packet[idx], HEX) + " ";
-    }
-
-    const size_t bufferSize = JSON_OBJECT_SIZE(10);
-    StaticJsonDocument<bufferSize> root;
-
-    root[packetDirection] = message;
-    String mqttOutput;
-    serializeJson(root, mqttOutput);
-    if (!mqtt_client.publish(ha_debug_topic.c_str(), mqttOutput.c_str()))
-    {
-      mqtt_client.publish(ha_debug_topic.c_str(), (char *)("Failed to publish to heatpump/debug topic"));
-    }
-  }
-}
-
 void updateUnitSettings(){
+    bool remoteEnabled = ac.getSettings().remoteEnable;
+    if (beep == lastBeep && ledEnabled == lastLedEnabled && remoteEnabled == lastRemoteEnabled) return;
+    lastBeep = beep;
+    lastLedEnabled = ledEnabled;
+    lastRemoteEnabled = remoteEnabled;
+
     String mqttOutput;
-    StaticJsonDocument<32> doc;
+    JsonDocument doc;
     doc["led"] = ledEnabled?"ON":"OFF";
     doc["beep"] = beep?"ON":"OFF";
+    doc["remoteEnable"] = remoteEnabled?"ON":"OFF";
     serializeJson(doc,mqttOutput);
 
-    if (!mqtt_client.publish_P(ha_unit_settings_topic.c_str(), mqttOutput.c_str(), false))
+    if (!mqtt_client.publish_P(ha_unit_settings_topic.c_str(), mqttOutput.c_str(), true))
     {
       if (_debugMode)
         mqtt_client.publish(ha_debug_topic.c_str(), (char *)("Failed to publish hp status change"));
@@ -1808,7 +1799,7 @@ void updateUnitSettings(){
 void hpSendLocalState()
 {
 
-  // Send dummy MQTT state packet before unit update
+  // Publish current state to MQTT before sending command to unit
   String mqttOutput;
   serializeJson(rootInfo, mqttOutput);
   Log.ln(TAG, "Update State: %s\n", mqttOutput.c_str());
@@ -2008,16 +1999,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     Log.ln(TAG, "Get response from  custom packet ");
     Log.ln(TAG, String(ac.daikinUART->getResponse().cmd1));
     Log.ln(TAG, String(ac.daikinUART->getResponse().cmd2));
-    Log.ln(TAG, String(getHEXformatted2(ac.daikinUART->getResponse().data, ac.daikinUART->getResponse().dataSize)));
+    Log.ln(TAG, String(getHEXformatted(ac.daikinUART->getResponse().data, ac.daikinUART->getResponse().dataSize)));
   }
   else if (strcmp(topic, ha_custom_query_experimental.c_str()) == 0)
   {
-    String command[256];
+    String command[32];
     uint8_t commandCount = 0;
     char *nextByte;
     nextByte = strtok(message, " ,");
 
-    while (nextByte != NULL && commandCount < 256)
+    while (nextByte != NULL && commandCount < 32)
     {
       command[commandCount] = nextByte;
       nextByte = strtok(NULL, " ,");
@@ -2032,7 +2023,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       {
         uint8_t dataTruncated[256];
         memcpy(dataTruncated, ac.daikinUART->getResponse().data + 3, ac.daikinUART->getResponse().dataSize - 5);
-        commandRes += "CMD: " + command[i] + " Res: " + getHEXformatted2(dataTruncated, ac.daikinUART->getResponse().dataSize - 5) + "\n";
+        commandRes += "CMD: " + command[i] + " Res: " + getHEXformatted(dataTruncated, ac.daikinUART->getResponse().dataSize - 5) + "\n";
       }
       else
       {
@@ -2046,7 +2037,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
   {
     if (_debugMode && ac.isConnected())
     {
-      Log.ln(TAG, "Serial SEND >> " + getHEXformatted2(payload, length));
+      Log.ln(TAG, "Serial SEND >> " + getHEXformatted(payload, length));
       acSerial->write(payload, length);
 
       // if (acSerial->available() > 0){
@@ -2061,7 +2052,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       }
 
 
-      Log.ln(TAG, "Serial RECV << " + getHEXformatted2(buff, len));
+      Log.ln(TAG, "Serial RECV << " + getHEXformatted(buff, len));
       mqtt_client.publish(ha_serial_recv_topic.c_str(), buff, len);
       // }
     }
@@ -2092,6 +2083,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
       ac.update();
     }
   }
+  else if (strcmp(topic, ha_preset_mode_set_topic.c_str()) == 0)
+  {
+    if (strcmp(message, "boost") == 0) {
+      ac.setPowerfulSetting("ON");
+    } else {
+      ac.setPowerfulSetting("OFF");
+    }
+    playBeep(SET);
+    ac.update();
+  }
    else if (strcmp(topic, ha_switch_remote_enable_set_topic.c_str()) == 0)
   {
     String modeUpper = message;
@@ -2118,24 +2119,41 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
   digitalWrite(LED_ACT, LOW);
 }
 
-void addMQTTDeviceInfo(DynamicJsonDocument *JsonDocument)
+void addMQTTDeviceInfo(JsonDocument *JsonDocument)
 {
-  JsonObject haConfigDevice = JsonDocument->createNestedObject("device");
+  JsonObject haConfigDevice = (*JsonDocument)["device"].to<JsonObject>();
 
   haConfigDevice["ids"] = mqtt_fn;
-  haConfigDevice["name"] = mqtt_fn;
+  haConfigDevice["name"] = mqtt_device_name.isEmpty() ? mqtt_fn : mqtt_device_name;
   haConfigDevice["sw"] = "Daikin2MQTT " + String(dk2mqtt_version);
   haConfigDevice["mdl"] = ac.getModelName().isEmpty() ? "HVAC Daikin" : ac.getModelName();
   haConfigDevice["mf"] = "Daikin";
   haConfigDevice["hw"] = hardware_version;
   haConfigDevice["cu"] = "http://" + WiFi.localIP().toString();
+
+  JsonObject origin = (*JsonDocument)["origin"].to<JsonObject>();
+  origin["name"] = "Daikin2MQTT";
+  origin["sw"] = dk2mqtt_version;
+}
+
+void publishMQTTDiscovery(JsonDocument &config, const String &topic)
+{
+  addMQTTDeviceInfo(&config);
+  String mqttOutput;
+  serializeJson(config, mqttOutput);
+  mqtt_client.beginPublish(topic.c_str(), mqttOutput.length(), true);
+  mqtt_client.print(mqttOutput);
+  mqtt_client.endPublish();
+}
+
+// Build a Jinja2 value template: {{ value_json.field if defined else fallback }}
+String jsonValueTemplate(const char* field, const char* fallback = "''") {
+  return String("{{ value_json.") + field + " if (value_json is defined and value_json." + field + " is defined) else " + fallback + " }}";
 }
 
 void publishMQTTSensorConfig(const char *name, const char *id, const char *icon, const char *unit, const char *deviceClass, String stateTopic, String valueTemplate, String topic, String entityCategory = "")
 {
-  const size_t sensorConfigSize = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(13) + 2048;
-  DynamicJsonDocument haSensorConfig(sensorConfigSize);
-  // StaticJsonDocument<1024> haSensorConfig;
+  JsonDocument haSensorConfig;
   haSensorConfig["name"] = name;
   haSensorConfig["unique_id"] = getId() + id;
   haSensorConfig["icon"] = icon;
@@ -2146,6 +2164,8 @@ void publishMQTTSensorConfig(const char *name, const char *id, const char *icon,
     if(strcmp(deviceClass, "energy") == 0){
       haSensorConfig["state_class"] = "total_increasing";
       haSensorConfig["suggested_display_precision"] = 1;
+    } else if(strcmp(deviceClass, "temperature") == 0){
+      haSensorConfig["state_class"] = "measurement";
     }
   }
   if (!entityCategory.isEmpty())
@@ -2159,142 +2179,204 @@ void publishMQTTSensorConfig(const char *name, const char *id, const char *icon,
   haSensorConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
   haSensorConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
 
-  addMQTTDeviceInfo(&haSensorConfig);
-
-  String mqttOutput;
-  serializeJson(haSensorConfig, mqttOutput);
-  mqtt_client.beginPublish(topic.c_str(), mqttOutput.length(), true);
-  mqtt_client.print(mqttOutput);
-  mqtt_client.endPublish();
+  publishMQTTDiscovery(haSensorConfig, topic);
 
 }
 
+void publishMQTTSwitchConfig(const char *name, const char *id, const char *icon,
+  String commandTopic, String stateTopic, String valueTemplate, String topic,
+  String entityCategory = "", bool optimistic = false)
+{
+  JsonDocument haSwitchConfig;
+  haSwitchConfig["name"] = name;
+  haSwitchConfig["unique_id"] = getId() + id;
+  haSwitchConfig["icon"] = icon;
+  haSwitchConfig["command_topic"] = commandTopic;
+  haSwitchConfig["payload_on"] = "ON";
+  haSwitchConfig["payload_off"] = "OFF";
+  haSwitchConfig["state_on"] = "ON";
+  haSwitchConfig["state_off"] = "OFF";
+  if (!stateTopic.isEmpty()) {
+    haSwitchConfig["state_topic"] = stateTopic;
+    haSwitchConfig["value_template"] = valueTemplate;
+  }
+  if (optimistic) {
+    haSwitchConfig["optimistic"] = true;
+  }
+  if (!entityCategory.isEmpty()) {
+    haSwitchConfig["entity_category"] = entityCategory;
+  }
+  if (others_avail_report) {
+    haSwitchConfig["availability_topic"] = ha_availability_topic;
+    haSwitchConfig["payload_not_available"] = mqtt_payload_unavailable;
+    haSwitchConfig["payload_available"] = mqtt_payload_available;
+  }
+  publishMQTTDiscovery(haSwitchConfig, topic);
+}
+
+void publishMQTTSelectConfig(const char *name, const char *id, const char *icon,
+  String stateTopic, String valueTemplate, String commandTopic,
+  const char *options[], int optionCount, String topic)
+{
+  JsonDocument haSelectConfig;
+  haSelectConfig["name"] = name;
+  haSelectConfig["unique_id"] = getId() + id;
+  haSelectConfig["icon"] = icon;
+  haSelectConfig["state_topic"] = stateTopic;
+  haSelectConfig["value_template"] = valueTemplate;
+  haSelectConfig["command_topic"] = commandTopic;
+  JsonArray opts = haSelectConfig["options"].to<JsonArray>();
+  for (int i = 0; i < optionCount; i++) {
+    opts.add(options[i]);
+  }
+  if (others_avail_report) {
+    haSelectConfig["availability_topic"] = ha_availability_topic;
+    haSelectConfig["payload_not_available"] = mqtt_payload_unavailable;
+    haSelectConfig["payload_available"] = mqtt_payload_available;
+  }
+  publishMQTTDiscovery(haSelectConfig, topic);
+}
+
+// haConfig() — Publishes HA MQTT Discovery config for all entities.
+// Called at: (1) MQTT connect, (2) onFirstSyncSuccess, (3) runtime rediscovery.
+// Entities are conditionally exposed based on capability detection from sync().
+// Fan modes use Jinja templates for bidirectional mapping (internal 1/2/3 ↔ HA low/medium/high).
+// Swing modes are capitalized in HA (Hold/Swing) with templates mapping to internal lowercase.
 void haConfig()
 {
-
-  // send HA config packet
-  // setup HA payload device
+  const uint8_t proto = ac.daikinUART->currentProtocol();
 
   //
   //  Climate Entity
   //
-  const size_t capacityClimateConfig =  JSON_ARRAY_SIZE(7) + JSON_ARRAY_SIZE(7) + 2 * JSON_ARRAY_SIZE(6) + JSON_ARRAY_SIZE(7) + JSON_ARRAY_SIZE(6)+ JSON_OBJECT_SIZE(30) + 2048;
-  DynamicJsonDocument haClimateConfig(capacityClimateConfig);
+  JsonDocument haClimateConfig;
 
   haClimateConfig["name"] = nullptr;
   haClimateConfig["unique_id"] = getId();
   haClimateConfig["icon"] = HA_AC_icon;
 
-  JsonArray haConfigModes = haClimateConfig.createNestedArray("modes");
+  JsonArray haConfigModes = haClimateConfig["modes"].to<JsonArray>();
   haConfigModes.add("cool");
   haConfigModes.add("dry");
   if (supportHeatMode)
   {
-    haConfigModes.add("heat_cool"); // native AUTO mode
+    haConfigModes.add("heat_cool"); // native AUTO mode (can heat+cool)
     haConfigModes.add("heat");
   }
   haConfigModes.add("fan_only"); // native FAN mode
   haConfigModes.add("off");
 
-  haClimateConfig["mode_cmd_t"] = ha_mode_set_topic;
-  haClimateConfig["mode_stat_t"] = ha_state_topic;
-  haClimateConfig["mode_stat_tpl"] = F("{{ value_json.mode if (value_json is defined and value_json.mode is defined and value_json.mode|length) else 'off' }}"); // Set default value for fix "Could not parse data for HA"
-  haClimateConfig["temp_cmd_t"] = ha_temp_set_topic;
-  haClimateConfig["temp_stat_t"] = ha_state_topic;
+  haClimateConfig["mode_command_topic"] = ha_mode_set_topic;
+  haClimateConfig["mode_state_topic"] = ha_state_topic;
+  haClimateConfig["mode_state_template"] = F("{{ value_json.mode if (value_json is defined and value_json.mode is defined and value_json.mode|length) else 'off' }}");
+  haClimateConfig["temperature_command_topic"] = ha_temp_set_topic;
+  haClimateConfig["temperature_state_topic"] = ha_state_topic;
 
-  if (others_avail_report)
-  {
-    haClimateConfig["avty_t"] = ha_availability_topic;          // MQTT last will (status) messages topic
-    haClimateConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
-    haClimateConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
-  }
+  haClimateConfig["availability_topic"] = ha_availability_topic;
+  haClimateConfig["payload_not_available"] = mqtt_payload_unavailable;
+  haClimateConfig["payload_available"] = mqtt_payload_available;
   // Set default value for fix "Could not parse data for HA"
   String temp_stat_tpl_str = F("{% if (value_json is defined and value_json.temperature is defined) %}{% if (value_json.temperature|int > ");
   temp_stat_tpl_str += (String)convertCelsiusToLocalUnit(min_temp, useFahrenheit) + " and value_json.temperature|int < ";
   temp_stat_tpl_str += (String)convertCelsiusToLocalUnit(max_temp, useFahrenheit) + ") %}{{ value_json.temperature }}";
   temp_stat_tpl_str += "{% elif (value_json.temperature|int < " + (String)convertCelsiusToLocalUnit(min_temp, useFahrenheit) + ") %}" + (String)convertCelsiusToLocalUnit(min_temp, useFahrenheit) + "{% elif (value_json.temperature|int > " + (String)convertCelsiusToLocalUnit(max_temp, useFahrenheit) + ") %}" + (String)convertCelsiusToLocalUnit(max_temp, useFahrenheit) + "{% endif %}{% else %}" + (String)convertCelsiusToLocalUnit(22, useFahrenheit) + "{% endif %}";
-  haClimateConfig["temp_stat_tpl"] = temp_stat_tpl_str;
-  haClimateConfig["curr_temp_t"] = ha_state_topic;
+  haClimateConfig["temperature_state_template"] = temp_stat_tpl_str;
+  haClimateConfig["current_temperature_topic"] = ha_state_topic;
   String curr_temp_tpl_str = F("{{ value_json.roomTemperature if (value_json is defined and value_json.roomTemperature is defined and value_json.roomTemperature|int > ");
   // curr_temp_tpl_str += (String)convertCelsiusToLocalUnit(1, useFahrenheit) + ") else '" + (String)convertCelsiusToLocalUnit(26, useFahrenheit) + "' }}"; // Set default value for fix "Could not parse data for HA"
   curr_temp_tpl_str += (String)convertCelsiusToLocalUnit(1, useFahrenheit) + ") else '' }}"; // Set default value for fix "Could not parse data for HA"
-  haClimateConfig["curr_temp_tpl"] = curr_temp_tpl_str;
+  haClimateConfig["current_temperature_template"] = curr_temp_tpl_str;
 
 
   haClimateConfig["min_temp"] = convertCelsiusToLocalUnit(min_temp, useFahrenheit);
   haClimateConfig["max_temp"] = convertCelsiusToLocalUnit(max_temp, useFahrenheit);
   haClimateConfig["temp_step"] = temp_step;
-  haClimateConfig["pow_cmd_t"] = ha_power_set_topic;
+  haClimateConfig["power_command_topic"] = ha_power_set_topic;
   haClimateConfig["temperature_unit"] = useFahrenheit ? "F" : "C";
 
-  JsonArray haConfigFan_modes = haClimateConfig.createNestedArray("fan_modes");
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
+  JsonArray haConfigFan_modes = haClimateConfig["fan_modes"].to<JsonArray>();
+  if (proto == PROTOCOL_S21)
   {
-    haConfigFan_modes.add("AUTO");
-    haConfigFan_modes.add("QUIET");
-    haConfigFan_modes.add("1");
-    haConfigFan_modes.add("2");
-    haConfigFan_modes.add("3");
-    haConfigFan_modes.add("4");
-    haConfigFan_modes.add("5");
-  }else if (ac.daikinUART->currentProtocol() == PROTOCOL_X50)
+    haConfigFan_modes.add("auto");
+    haConfigFan_modes.add("Quiet");
+    haConfigFan_modes.add("low");
+    haConfigFan_modes.add("medium");
+    haConfigFan_modes.add("high");
+    if (fan_speed_levels >= 5) {
+      haConfigFan_modes.add("4");
+      haConfigFan_modes.add("5");
+    }
+  }else if (proto == PROTOCOL_X50)
   {
-    haConfigFan_modes.add("AUTO");
-    haConfigFan_modes.add("1");
-    haConfigFan_modes.add("2");
-    haConfigFan_modes.add("3");
-    haConfigFan_modes.add("4"); // Test
-    haConfigFan_modes.add("5"); // Test
+    haConfigFan_modes.add("auto");
+    haConfigFan_modes.add("low");
+    haConfigFan_modes.add("medium");
+    haConfigFan_modes.add("high");
+    if (fan_speed_levels >= 5) {
+      haConfigFan_modes.add("4");
+      haConfigFan_modes.add("5");
+    }
   }
 
-  haClimateConfig["fan_mode_cmd_t"] = ha_fan_set_topic;
-  haClimateConfig["fan_mode_stat_t"] = ha_state_topic;
-  haClimateConfig["fan_mode_stat_tpl"] = F("{{ value_json.fan if (value_json is defined and value_json.fan is defined and value_json.fan|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
+  haClimateConfig["fan_mode_command_topic"] = ha_fan_set_topic;
+  // Map HA display names back to internal S21 values
+  haClimateConfig["fan_mode_command_template"] = F("{% set map = {'Quiet':'quiet','low':'1','medium':'2','high':'3'} %}{{ map.get(value, value) }}");
+  haClimateConfig["fan_mode_state_topic"] = ha_state_topic;
+  // Map internal S21 values to HA display names
+  haClimateConfig["fan_mode_state_template"] = F("{% set map = {'quiet':'Quiet','1':'low','2':'medium','3':'high'} %}{% set f = value_json.fan if (value_json is defined and value_json.fan is defined) else 'auto' %}{{ map.get(f, f) }}");
 
-  //Vertical Swing
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
-  {
-    JsonArray haConfigSwing_modes = haClimateConfig.createNestedArray("swing_modes");
-    haConfigSwing_modes.add("HOLD");
-    haConfigSwing_modes.add("SWING");
-    haClimateConfig["swing_mode_cmd_t"] = ha_vane_set_topic;
-    haClimateConfig["swing_mode_stat_t"] = ha_state_topic;
-    haClimateConfig["swing_mode_stat_tpl"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
-  }else if (ac.daikinUART->currentProtocol() == PROTOCOL_X50)
-  {
-    JsonArray haConfigSwing_modes = haClimateConfig.createNestedArray("swing_modes");
-    haConfigSwing_modes.add("SWING");
-    haConfigSwing_modes.add("0");
-    haConfigSwing_modes.add("1");
-    haConfigSwing_modes.add("2");
-    haConfigSwing_modes.add("3");
-    haConfigSwing_modes.add("4");
-    haClimateConfig["swing_mode_cmd_t"] = ha_vane_set_topic;
-    haClimateConfig["swing_mode_stat_t"] = ha_state_topic;
-    haClimateConfig["swing_mode_stat_tpl"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
+  //Vertical Swing — only if unit supports it (detected via F2)
+  if (ac.supportsVerticalSwing()) {
+    if (proto == PROTOCOL_S21)
+    {
+      JsonArray haConfigSwing_modes = haClimateConfig["swing_modes"].to<JsonArray>();
+      haConfigSwing_modes.add("Hold");
+      haConfigSwing_modes.add("Swing");
+      haClimateConfig["swing_mode_command_topic"] = ha_vane_set_topic;
+      haClimateConfig["swing_mode_command_template"] = F("{% set map = {'Hold':'hold','Swing':'swing'} %}{{ map.get(value, value) }}");
+      haClimateConfig["swing_mode_state_topic"] = ha_state_topic;
+      haClimateConfig["swing_mode_state_template"] = F("{% set map = {'hold':'Hold','swing':'Swing'} %}{% set v = value_json.vane if (value_json is defined and value_json.vane is defined) else 'swing' %}{{ map.get(v, v) }}");
+    }else if (proto == PROTOCOL_X50)
+    {
+      JsonArray haConfigSwing_modes = haClimateConfig["swing_modes"].to<JsonArray>();
+      haConfigSwing_modes.add("Swing");
+      haConfigSwing_modes.add("0");
+      haConfigSwing_modes.add("1");
+      haConfigSwing_modes.add("2");
+      haConfigSwing_modes.add("3");
+      haConfigSwing_modes.add("4");
+      haClimateConfig["swing_mode_command_topic"] = ha_vane_set_topic;
+      haClimateConfig["swing_mode_command_template"] = F("{% set map = {'Swing':'swing'} %}{{ map.get(value, value) }}");
+      haClimateConfig["swing_mode_state_topic"] = ha_state_topic;
+      haClimateConfig["swing_mode_state_template"] = F("{% set map = {'swing':'Swing'} %}{% set v = value_json.vane if (value_json is defined and value_json.vane is defined) else 'swing' %}{{ map.get(v, v) }}");
+    }
   }
 
-  //Horizontal Swing
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
+  //Horizontal Swing — only if unit supports it (detected via F2)
+  if (ac.supportsHorizontalSwing() && proto == PROTOCOL_S21)
   {
-    JsonArray haConfigSwing_horizontal_modes = haClimateConfig.createNestedArray("swing_horizontal_modes");
-    haConfigSwing_horizontal_modes.add("HOLD");
-    haConfigSwing_horizontal_modes.add("SWING");
+    JsonArray haConfigSwing_horizontal_modes = haClimateConfig["swing_horizontal_modes"].to<JsonArray>();
+    haConfigSwing_horizontal_modes.add("Hold");
+    haConfigSwing_horizontal_modes.add("Swing");
     haClimateConfig["swing_horizontal_mode_command_topic"] = ha_wideVane_set_topic;
+    haClimateConfig["swing_horizontal_mode_command_template"] = F("{% set map = {'Hold':'hold','Swing':'swing'} %}{{ map.get(value, value) }}");
     haClimateConfig["swing_horizontal_mode_state_topic"] = ha_state_topic;
-    haClimateConfig["swing_horizontal_mode_state_template"] = F("{{ value_json.wideVane if (value_json is defined and value_json.wideVane is defined and value_json.wideVane|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
+    haClimateConfig["swing_horizontal_mode_state_template"] = F("{% set map = {'hold':'Hold','swing':'Swing'} %}{% set v = value_json.wideVane if (value_json is defined and value_json.wideVane is defined) else 'swing' %}{{ map.get(v, v) }}");
+  }
+
+  // Preset modes (Powerful = boost) — only if unit supports D6/F6
+  if (proto == PROTOCOL_S21 && ac.supportsPowerful()) {
+    JsonArray presetModes = haClimateConfig["preset_modes"].to<JsonArray>();
+    presetModes.add("boost");
+    haClimateConfig["preset_mode_command_topic"] = ha_preset_mode_set_topic;
+    haClimateConfig["preset_mode_state_topic"] = ha_state_topic;
+    haClimateConfig["preset_mode_value_template"] = F("{{ 'boost' if (value_json is defined and value_json.powerful is defined and value_json.powerful == 'ON') else 'none' }}");
   }
 
   haClimateConfig["action_topic"] = ha_state_topic;
   haClimateConfig["action_template"] = F("{{ value_json.action if (value_json is defined and value_json.action is defined and value_json.action|length) else 'idle' }}"); // Set default value for fix "Could not parse data for HA"
 
-  addMQTTDeviceInfo(&haClimateConfig);
-
-  String mqttOutput;
-  serializeJson(haClimateConfig, mqttOutput);
-  mqtt_client.beginPublish(ha_climate_config_topic.c_str(), mqttOutput.length(), true);
-  mqtt_client.print(mqttOutput);
-  mqtt_client.endPublish();
+  publishMQTTDiscovery(haClimateConfig, ha_climate_config_topic);
 
   //
   // Sensor entities
@@ -2306,158 +2388,84 @@ void haConfig()
   String inside_coil_temp_tpl_str = F("{{ value_json.internalCoilTemperature if (value_json is defined and value_json.internalCoilTemperature is defined and value_json.internalCoilTemperature|int > ");
   inside_coil_temp_tpl_str += (String)convertCelsiusToLocalUnit(1, useFahrenheit) + ") else '' }}"; // Set default value for fix "Could not parse data for HA"
 
-  String inside_fan_rpm_tpl_str = F("{{ value_json.fanRPM if (value_json is defined and value_json.fanRPM is defined ) else '' }}"); // Set default value for fix "Could not parse data for HA"
-  String comp_freq_tpl_str = F("{{ value_json.compressorFrequency if (value_json is defined and value_json.compressorFrequency is defined ) else '' }}"); // Set default value for fix "Could not parse data for HA"
-  String energy_meter_tpl_str = F("{{ value_json.energyMeter if (value_json is defined and value_json.energyMeter is defined ) else '' }}"); // Set default value for fix "Could not parse data for HA"
-  String error_code_tpl_str = F("{{ value_json.errorCode if (value_json is defined and value_json.errorCode is defined ) else '' }}"); // Set default value for fix "Could not parse data for HA"
+  publishMQTTSensorConfig("Room temperature", "_room_temp", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "temperature", ha_state_topic, curr_temp_tpl_str, ha_sensor_room_temp_config_topic);
+  if (ac.supportsOutsideTemp()) {
+    publishMQTTSensorConfig("Outdoor Unit Temperature", "_outside_temp", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "temperature", ha_state_topic, outside_temp_tpl_str, ha_sensor_outside_temp_config_topic);
+  }
+  publishMQTTSensorConfig("Coil temperature", "_inside_coil_temp", HA_coil_icon, useFahrenheit ? "°F" : "°C", "temperature", ha_state_topic, inside_coil_temp_tpl_str, ha_sensor_inside_coil_temp_config_topic);
+  publishMQTTSensorConfig("Fan RPM", "_inside_fan_rpm", HA_turbine_icon, "RPM", NULL, ha_state_topic, jsonValueTemplate("fanRPM"), ha_sensor_fan_rpm_temp_config_topic);
+  if (ac.supportsCompressorFreq()) {
+    publishMQTTSensorConfig("Compressor Frequency", "_comp_freq", HA_sine_wave_icon, "Hz", NULL, ha_state_topic, jsonValueTemplate("compressorFrequency"), ha_sensor_comp_freq_config_topic);
+  }
+  publishMQTTSensorConfig("Error Code", "_error_code", HA_alert, NULL, NULL, ha_state_topic, jsonValueTemplate("errorCode"), ha_sensor_error_code_config_topic, "diagnostic");
+  publishMQTTSensorConfig("Timer", "_timer_mode", "mdi:timer-outline", NULL, NULL, ha_state_topic, jsonValueTemplate("timerMode"), ha_sensor_timer_mode_config_topic, "diagnostic");
 
-  publishMQTTSensorConfig("Room temperature", "_room_temp", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "Temperature", ha_state_topic, curr_temp_tpl_str, ha_sensor_room_temp_config_topic);
-  publishMQTTSensorConfig("Outside temperature", "_outside_temp", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "Temperature", ha_state_topic, outside_temp_tpl_str, ha_sensor_outside_temp_config_topic);
-  publishMQTTSensorConfig("Coil temperature", "_inside_coil_temp", HA_coil_icon, useFahrenheit ? "°F" : "°C", "Temperature", ha_state_topic, inside_coil_temp_tpl_str, ha_sensor_inside_coil_temp_config_topic);
-  publishMQTTSensorConfig("Fan RPM", "_inside_fan_rpm", HA_turbine_icon, "RPM", NULL, ha_state_topic, inside_fan_rpm_tpl_str, ha_sensor_fan_rpm_temp_config_topic);
-  publishMQTTSensorConfig("Compressor Frequency", "_comp_freq", HA_sine_wave_icon, "Hz", NULL, ha_state_topic, comp_freq_tpl_str, ha_sensor_comp_freq_config_topic);
-  publishMQTTSensorConfig("Error Code", "_error_code", HA_alert, NULL, NULL, ha_state_topic, error_code_tpl_str, ha_sensor_error_code_config_topic, "diagnostic");
-
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
-    publishMQTTSensorConfig("Energy Meter", "_energy_meter", HA_counter, "kWh", "energy", ha_state_topic, energy_meter_tpl_str, ha_sensor_energy_meter_config_topic);
+  if (proto == PROTOCOL_S21 && ac.supportsEnergyMeter()){
+    publishMQTTSensorConfig("Energy Meter", "_energy_meter", HA_counter, "kWh", "energy", ha_state_topic, jsonValueTemplate("energyMeter"), ha_sensor_energy_meter_config_topic);
   }
 
-
-  // Vane vertical config 
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
-  {
-    const size_t capacityVaneVerticalConfig = JSON_ARRAY_SIZE(8) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-    DynamicJsonDocument haVaneVerticalConfig(capacityVaneVerticalConfig);
-    haVaneVerticalConfig["name"] = "Vane Vertical";
-    haVaneVerticalConfig["unique_id"] = getId() + "_vane_vertical";
-    haVaneVerticalConfig["icon"] = HA_vane_vertical_icon;
-    haVaneVerticalConfig["state_topic"] = ha_state_topic;
-    haVaneVerticalConfig["value_template"] = F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
-    haVaneVerticalConfig["command_topic"] = ha_vane_set_topic;
-    JsonArray haConfighVaneVerticalOptions = haVaneVerticalConfig.createNestedArray("options");
-    haConfighVaneVerticalOptions.add("HOLD");
-    haConfighVaneVerticalOptions.add("SWING");
-
-    addMQTTDeviceInfo(&haVaneVerticalConfig);
-
-    if (others_avail_report)
-    {
-      haVaneVerticalConfig["avty_t"] = ha_availability_topic;          // MQTT last will (status) messages topic
-      haVaneVerticalConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
-      haVaneVerticalConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
-    }
-
-    mqttOutput.clear();
-    serializeJson(haVaneVerticalConfig, mqttOutput);
-    mqtt_client.beginPublish(ha_select_vane_vertical_config_topic.c_str(), mqttOutput.length(), true);
-    mqtt_client.print(mqttOutput);
-    mqtt_client.endPublish();
+  if (ac.supportsRealTargetTemp()) {
+    publishMQTTSensorConfig("Target Temperature", "_real_target_temp", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "temperature", ha_state_topic, jsonValueTemplate("realTargetTemp"), ha_sensor_real_target_temp_config_topic);
   }
 
-  // Vane horizontal config
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21)
-  {
-    const size_t capacityVaneHorizontalConfig = JSON_ARRAY_SIZE(7) + JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-    DynamicJsonDocument haVaneHorizontalConfig(capacityVaneHorizontalConfig);
-    // StaticJsonDocument<1024> haVaneHorizontalConfig;
-    haVaneHorizontalConfig["name"] = "Vane Horizontal";
-    haVaneHorizontalConfig["unique_id"] = getId() + "_vane_horizontal";
-    haVaneHorizontalConfig["icon"] = HA_vane_horizontal_icon;
-    haVaneHorizontalConfig["state_topic"] = ha_state_topic;
-    haVaneHorizontalConfig["value_template"] = F("{{ value_json.wideVane if (value_json is defined and value_json.wideVane is defined and value_json.wideVane|length) else 'SWING' }}"); // Set default value for fix "Could not parse data for HA"
-    haVaneHorizontalConfig["command_topic"] = ha_wideVane_set_topic;
-    JsonArray haConfigVaneHorizontalOptions = haVaneHorizontalConfig.createNestedArray("options");
-    haConfigVaneHorizontalOptions.add("HOLD");
-    haConfigVaneHorizontalOptions.add("SWING");
-    if (others_avail_report)
-    {
-      haVaneHorizontalConfig["avty_t"] = ha_availability_topic;          // MQTT last will (status) messages topic
-      haVaneHorizontalConfig["pl_not_avail"] = mqtt_payload_unavailable; // MQTT offline message payload
-      haVaneHorizontalConfig["pl_avail"] = mqtt_payload_available;       // MQTT online message payload
-    }
-    addMQTTDeviceInfo(&haVaneHorizontalConfig);
+  if (ac.supportsLouverAngle()) {
+    publishMQTTSensorConfig("Louver Angle", "_louver_angle", HA_vane_vertical_icon, "°", NULL, ha_state_topic, jsonValueTemplate("louverAngle"), ha_sensor_louver_angle_config_topic, "diagnostic");
+  }
 
-    mqttOutput.clear();
-    serializeJson(haVaneHorizontalConfig, mqttOutput);
-    mqtt_client.beginPublish(ha_select_vane_horizontal_config_topic.c_str(), mqttOutput.length(), true);
-    mqtt_client.print(mqttOutput);
-    mqtt_client.endPublish();
+  if (ac.supportsOnTimer()) {
+    publishMQTTSensorConfig("ON Timer", "_on_timer", "mdi:timer-outline", "min", NULL, ha_state_topic, jsonValueTemplate("onTimerMinutes"), ha_sensor_on_timer_config_topic, "diagnostic");
+  }
+
+  if (ac.supportsOffTimer()) {
+    publishMQTTSensorConfig("OFF Timer", "_off_timer", "mdi:timer-off-outline", "min", NULL, ha_state_topic, jsonValueTemplate("offTimerMinutes"), ha_sensor_off_timer_config_topic, "diagnostic");
+  }
+
+  // Vane vertical config — only if supported
+  if (proto == PROTOCOL_S21 && ac.supportsVerticalSwing())
+  {
+    const char* vaneOpts[] = {"hold", "swing"};
+    publishMQTTSelectConfig("Vane Vertical", "_vane_vertical", HA_vane_vertical_icon,
+      ha_state_topic,
+      F("{{ value_json.vane if (value_json is defined and value_json.vane is defined and value_json.vane|length) else 'swing' }}"),
+      ha_vane_set_topic, vaneOpts, 2, ha_select_vane_vertical_config_topic);
+  }
+
+  // Vane horizontal config — only if supported
+  if (proto == PROTOCOL_S21 && ac.supportsHorizontalSwing())
+  {
+    const char* wideVaneOpts[] = {"hold", "swing"};
+    publishMQTTSelectConfig("Vane Horizontal", "_vane_horizontal", HA_vane_horizontal_icon,
+      ha_state_topic,
+      F("{{ value_json.wideVane if (value_json is defined and value_json.wideVane is defined and value_json.wideVane|length) else 'swing' }}"),
+      ha_wideVane_set_topic, wideVaneOpts, 2, ha_select_vane_horizontal_config_topic);
   }
 
   // LED Switch config
-  const size_t capacityLEDSwitchConfig = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-  DynamicJsonDocument haLEDSwitchConfig(capacityLEDSwitchConfig);
-  haLEDSwitchConfig["name"] = "LED";
-  haLEDSwitchConfig["unique_id"] = getId() + "_unit_led";
-  haLEDSwitchConfig["icon"] = HA_led;
-  haLEDSwitchConfig["command_topic"] = ha_switch_unit_led_set_topic;
-  haLEDSwitchConfig["entity_category"] = "config";
-  haLEDSwitchConfig["state_topic"] = ha_unit_settings_topic;
-  haLEDSwitchConfig["value_template"] = F("{{ value_json.led if (value_json is defined and value_json.led is defined and value_json.led|length) else 'ON' }}"); 
+  publishMQTTSwitchConfig("LED", "_unit_led", HA_led,
+    ha_switch_unit_led_set_topic, ha_unit_settings_topic,
+    F("{{ value_json.led if (value_json is defined and value_json.led is defined and value_json.led|length) else 'ON' }}"),
+    ha_switch_unit_led_config_topic, "config");
 
-  addMQTTDeviceInfo(&haLEDSwitchConfig);
-  mqttOutput.clear();
-  serializeJson(haLEDSwitchConfig, mqttOutput);
-  mqtt_client.beginPublish(ha_switch_unit_led_config_topic.c_str(), mqttOutput.length(), true);
-  mqtt_client.print(mqttOutput);
-  mqtt_client.endPublish();
+  // Beep Switch config
+  publishMQTTSwitchConfig("Beep", "_unit_beep", HA_beep,
+    ha_switch_unit_beep_set_topic, ha_unit_settings_topic,
+    F("{{ value_json.beep if (value_json is defined and value_json.beep is defined and value_json.beep|length) else 'ON' }}"),
+    ha_switch_unit_beep_config_topic, "config");
 
-  // beep config
-  const size_t capacityBeepSwitchConfig = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-  DynamicJsonDocument haBeepSwitchConfig(capacityBeepSwitchConfig);
-  haBeepSwitchConfig["name"] = "Beep";
-  haBeepSwitchConfig["unique_id"] = getId() + "_unit_beep";
-  haBeepSwitchConfig["icon"] = HA_beep;
-  haBeepSwitchConfig["command_topic"] = ha_switch_unit_beep_set_topic;
-  haBeepSwitchConfig["entity_category"] = "config";
-  haBeepSwitchConfig["state_topic"] = ha_unit_settings_topic;
-  haBeepSwitchConfig["value_template"] = F("{{ value_json.beep if (value_json is defined and value_json.beep is defined and value_json.beep|length) else 'ON' }}"); 
-
-  addMQTTDeviceInfo(&haBeepSwitchConfig);
-  mqttOutput.clear();
-  serializeJson(haBeepSwitchConfig, mqttOutput);
-  mqtt_client.beginPublish(ha_switch_unit_beep_config_topic.c_str(), mqttOutput.length(), true);
-  mqtt_client.print(mqttOutput);
-  mqtt_client.endPublish();
-
-  // Powerful Mode Switch Config
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
-    const size_t capacityPowerfulSwitchConfig = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-    DynamicJsonDocument haPowerfulSwitchConfig(capacityPowerfulSwitchConfig);
-    haPowerfulSwitchConfig["name"] = "Powerful Mode";
-    haPowerfulSwitchConfig["unique_id"] = getId() + "_powerful";
-    haPowerfulSwitchConfig["icon"] = HA_powerful;
-    haPowerfulSwitchConfig["command_topic"] = ha_switch_powerful_set_topic;
-    haPowerfulSwitchConfig["state_topic"] = ha_state_topic;
-    haPowerfulSwitchConfig["value_template"] = F("{{ value_json.powerful if (value_json is defined and value_json.powerful is defined and value_json.powerful|length) else 'OFF' }}"); 
-
-    addMQTTDeviceInfo(&haPowerfulSwitchConfig);
-    mqttOutput.clear();
-    serializeJson(haPowerfulSwitchConfig, mqttOutput);
-    mqtt_client.beginPublish(ha_switch_powerful_config_topic.c_str(), mqttOutput.length(), true);
-    mqtt_client.print(mqttOutput);
-    mqtt_client.endPublish();
+  // Powerful Mode Switch Config — only if unit supports D6/F6
+  if (proto == PROTOCOL_S21 && ac.supportsPowerful()){
+    publishMQTTSwitchConfig("Powerful Mode", "_powerful", HA_powerful,
+      ha_switch_powerful_set_topic, ha_state_topic,
+      F("{{ value_json.powerful if (value_json is defined and value_json.powerful is defined and value_json.powerful|length) else 'OFF' }}"),
+      ha_switch_powerful_config_topic);
   }
 
-  // Disable / Enable remote switch (ON, OFF button since we can't find the way to check current state)
-  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
-    const size_t capacityRemoteEnableSwitchConfig = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
-    DynamicJsonDocument haRemoteEnableConfig(capacityRemoteEnableSwitchConfig);
-    haRemoteEnableConfig["name"] = "Enable IR Remote";
-    haRemoteEnableConfig["unique_id"] = getId() + "_enable_remote_ctrl";
-    haRemoteEnableConfig["icon"] = HA_remote_off;
-    haRemoteEnableConfig["optimistic"] = true;
-    haRemoteEnableConfig["command_topic"] = ha_switch_remote_enable_set_topic;
-    haRemoteEnableConfig["entity_category"] = "config";
-    // haPowerfulSwitchConfig["state_topic"] = ha_state_topic;
-    // haPowerfulSwitchConfig["value_template"] = F("{{ value_json.powerful if (value_json is defined and value_json.powerful is defined and value_json.powerful|length) else 'OFF' }}"); 
-
-    addMQTTDeviceInfo(&haRemoteEnableConfig);
-    mqttOutput.clear();
-    serializeJson(haRemoteEnableConfig, mqttOutput);
-    mqtt_client.beginPublish(ha_switch_remote_enable_config_topic.c_str(), mqttOutput.length(), true);
-    mqtt_client.print(mqttOutput);
-    mqtt_client.endPublish();
+  // Disable / Enable remote switch
+  if (proto == PROTOCOL_S21){
+    publishMQTTSwitchConfig("Enable IR Remote", "_enable_remote_ctrl", HA_remote_off,
+      ha_switch_remote_enable_set_topic, ha_unit_settings_topic,
+      F("{{ value_json.remoteEnable if (value_json is defined and value_json.remoteEnable is defined) else 'ON' }}"),
+      ha_switch_remote_enable_config_topic, "config");
   }
 }
 
@@ -2506,6 +2514,7 @@ void mqttConnect()
       mqtt_client.subscribe(ha_switch_unit_led_set_topic.c_str());
       mqtt_client.subscribe(ha_switch_unit_beep_set_topic.c_str());
       mqtt_client.subscribe(ha_switch_powerful_set_topic.c_str());
+      mqtt_client.subscribe(ha_preset_mode_set_topic.c_str());
       mqtt_client.subscribe(ha_switch_remote_enable_set_topic.c_str());
       mqtt_client.publish(ha_availability_topic.c_str(), !_debugMode ? mqtt_payload_available : mqtt_payload_unavailable, true); // publish status as available
       if (others_haa)
@@ -2738,13 +2747,11 @@ void IRAM_ATTR InterruptBTN()
 
   if (btnPressed)
   {
-    Log.ln(TAG, "Pressed");
     BTNPresedTime = millis();
     return;
   }
   else
   {
-    Log.ln(TAG, "Released");
     unsigned long pressedTime = millis() - BTNPresedTime;
     // digitalWrite(LED_ACT,0);
     if (pressedTime > 50 && pressedTime < 500)
@@ -2781,7 +2788,6 @@ void setup()
 {
   Serial.begin(115200); // USB CDC (Built-in)
   pinMode(LED_ACT, OUTPUT);
-  pinMode(LED_PWR, OUTPUT);
   pinMode(LED_PWR, OUTPUT);
   pinMode(BTN_1, INPUT);
   ledcAttachPin(BUZZER, 0);
@@ -2843,10 +2849,6 @@ void setup()
 
   if (initWifi())
   {
-    if (SPIFFS.exists(console_file))
-    {
-      SPIFFS.remove(console_file);
-    }
     // Web interface
     server.on("/", handleRoot);
     server.on("/control", handleControl);
@@ -2909,6 +2911,7 @@ void setup()
       ha_switch_unit_led_set_topic = mqtt_topic + "/" + mqtt_fn + "/led/set";
       ha_switch_unit_beep_set_topic = mqtt_topic + "/" + mqtt_fn + "/beep/set";
       ha_switch_powerful_set_topic = mqtt_topic + "/" + mqtt_fn + "/powerful/set";
+      ha_preset_mode_set_topic = mqtt_topic + "/" + mqtt_fn + "/preset/set";
       ha_switch_remote_enable_set_topic =  mqtt_topic + "/" + mqtt_fn + "/remote_enable/set";
 
       if (others_haa)
@@ -2921,6 +2924,11 @@ void setup()
         ha_sensor_comp_freq_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/comp_freq/config";
         ha_sensor_energy_meter_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/energy_meter/config";
         ha_sensor_error_code_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/error_code/config";
+        ha_sensor_timer_mode_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/timer_mode/config";
+        ha_sensor_real_target_temp_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/real_target_temp/config";
+        ha_sensor_louver_angle_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/louver_angle/config";
+        ha_sensor_on_timer_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/on_timer/config";
+        ha_sensor_off_timer_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/off_timer/config";
         ha_select_vane_vertical_config_topic = others_haa_topic + "/select/" + mqtt_fn + "/vane_vertical/config";
         ha_select_vane_horizontal_config_topic = others_haa_topic + "/select/" + mqtt_fn + "/vane_horizontal/config";
         ha_switch_unit_led_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/led/config";
@@ -2938,24 +2946,8 @@ void setup()
     // write_log("Connection to HVAC");
     ac.setSettingsChangedCallback(hpSettingsChanged);
     ac.setStatusChangedCallback(hpStatusChanged);
-    // ac.setPacketCallback(hpPacketDebug);
-    // Allow Remote/Panel
     ac.connect(acSerial);
-    HVACStatus currentStatus = ac.getStatus();
-    HVACSettings currentSettings = ac.getSettings();
-    rootInfo["roomTemperature"] = convertCelsiusToLocalUnit(currentStatus.roomTemperature, useFahrenheit);
-    rootInfo["outsideTemperature"] = convertCelsiusToLocalUnit(currentStatus.outsideTemperature, useFahrenheit);
-    rootInfo["internalCoilTemperature"] = convertCelsiusToLocalUnit(currentStatus.coilTemperature, useFahrenheit);
-    rootInfo["temperature"] = convertCelsiusToLocalUnit(currentSettings.temperature, useFahrenheit);
-    rootInfo["fan"] = currentSettings.fan;
-    rootInfo["fanRPM"] = int(currentStatus.fanRPM);
-    rootInfo["vane"] = currentSettings.horizontalVane;
-    rootInfo["wideVane"] = currentSettings.verticalVane;
-    rootInfo["mode"] = hpGetMode(currentSettings);
-    rootInfo["action"] = hpGetAction(currentStatus, currentSettings);
-    rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
-    rootInfo["errorCode"] = currentStatus.errorCode;
-    rootInfo["powerful"] = currentSettings.powerful;
+    populateRootInfo(ac.getSettings(), ac.getStatus(), true);
     lastTempSend = millis();
   }
   else
@@ -3036,10 +3028,12 @@ void loop()
           onFirstSyncSuccess();
         }
         ac.readState();
-        Log.ln(TAG, "PSRAM size:\t" + String(ESP.getPsramSize()));
-        Log.ln(TAG, "PSRAM Free:\t" + String(ESP.getFreePsram()));
-        Log.ln(TAG, "Heap left:\t" + String(esp_get_free_heap_size()));
-        Log.ln(TAG, "Free Stack Space:\t" + String(uxTaskGetStackHighWaterMark(NULL)));
+        if (_debugMode) {
+          Log.ln(TAG, "PSRAM size:\t%d", ESP.getPsramSize());
+          Log.ln(TAG, "PSRAM Free:\t%d", ESP.getFreePsram());
+          Log.ln(TAG, "Heap left:\t%d", esp_get_free_heap_size());
+          Log.ln(TAG, "Free Stack Space:\t%d", uxTaskGetStackHighWaterMark(NULL));
+        }
       }
     }
 

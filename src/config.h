@@ -17,13 +17,12 @@
 */
 
 
-const PROGMEM char* dk2mqtt_version = "1.3-b4";
+const PROGMEM char* dk2mqtt_version = "1.4-b1";
 
 //Define global variables for files
 const PROGMEM char* wifi_conf = "/wifi.json";
 const PROGMEM char* mqtt_conf = "/mqtt.json";
 const PROGMEM char* unit_conf = "/unit.json";
-const PROGMEM char* console_file = "/console.log";
 const PROGMEM char* others_conf = "/others.json";
 
 // Define global variables for network
@@ -41,6 +40,7 @@ const PROGMEM char* hardware_version = "WiFiKit Serial 1.2";
 
 // Define global variables for MQTT
 String mqtt_fn;
+String mqtt_device_name;
 String mqtt_server;
 String mqtt_port;
 String mqtt_username;
@@ -95,6 +95,11 @@ String ha_sensor_fan_rpm_temp_config_topic;
 String ha_sensor_comp_freq_config_topic;
 String ha_sensor_error_code_config_topic;
 String ha_sensor_energy_meter_config_topic;
+String ha_sensor_timer_mode_config_topic;
+String ha_sensor_real_target_temp_config_topic;
+String ha_sensor_louver_angle_config_topic;
+String ha_sensor_on_timer_config_topic;
+String ha_sensor_off_timer_config_topic;
 String ha_select_vane_vertical_config_topic;
 String ha_select_vane_horizontal_config_topic;
 String ha_switch_unit_led_config_topic;
@@ -109,6 +114,7 @@ String ha_availability_topic;
 String ha_switch_unit_led_set_topic;
 String ha_switch_unit_beep_set_topic;
 String ha_switch_powerful_set_topic;
+String ha_preset_mode_set_topic;
 String ha_switch_remote_enable_set_topic;
 String hvac_name;
 
@@ -134,6 +140,9 @@ uint8_t min_temp                    = 16; // Minimum temperature, check value fr
 uint8_t max_temp                    = 30; // Maximum temperature, check value from heatpump remote control
 String temp_step                    = "0.5"; // Temperature setting step, check value from heatpump remote control
 uint32_t update_int                 = SEND_ROOM_TEMP_INTERVAL_MS;
+float inside_temp_offset            = 0.0;
+float outside_temp_offset           = 0.0;
+uint8_t fan_speed_levels            = 3; // 3 or 5 fan speed levels
 
 
 // temp settings

@@ -1,7 +1,7 @@
 /*
   Daikin2mqtt - Daikin Heat Pump to MQTT control for Home Assistant.
   Copyright (c) 2024 - MaxMacSTN
-  
+
   Based on Mitsubishi2MQTT by gysmo38, dzungpv, shampeon, endeavour, jascdk, chrdavis, alekslyse.  All right reserved.
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -28,6 +28,7 @@ const char txt_MQTT[] PROGMEM = "MQTT";
 const char txt_WIFI[] PROGMEM = "WIFI";
 const char txt_unit[] PROGMEM = "Unité";
 const char txt_others[] PROGMEM = "Autres";
+const char txt_logging[] PROGMEM = "Journal";
 const char txt_reset[] PROGMEM = "Remise à zéro";
 const char txt_reset_confirm[] PROGMEM = "Voulez-vous vraiment remettre à zéro?";
 
@@ -42,23 +43,28 @@ const char txt_login[] PROGMEM = "Entrer";
 const char txt_f_on[] PROGMEM = "Activé";
 const char txt_f_off[] PROGMEM = "Désactivé";
 const char txt_f_auto[] PROGMEM = "AUTO";
+const char txt_f_quiet[] PROGMEM = "SILENCIEUX";
 const char txt_f_heat[] PROGMEM = "CHAUD";
 const char txt_f_dry[] PROGMEM = "SEC";
 const char txt_f_cool[] PROGMEM = "FROID";
-const char txt_f_fan[] PROGMEM = "VENTILLATION";
-const char txt_f_quiet[] PROGMEM = "SILENCIEUX";
+const char txt_f_fan[] PROGMEM = "VENTILATION";
 const char txt_f_speed[] PROGMEM = "VITESSE";
 const char txt_f_swing[] PROGMEM = "MOUVEMENT";
-const char txt_f_pos[] PROGMEM = "POSITION";
-const char txt_f_celsius[] PROGMEM = "Celsus";
+const char txt_f_hold[] PROGMEM = "HOLD";
+const char txt_f_celsius[] PROGMEM = "Celsius";
 const char txt_f_fh[] PROGMEM = "Fahrenheit";
 const char txt_f_allmodes[] PROGMEM = "Clim réversible";
 const char txt_f_noheat[] PROGMEM = "Uniquement climatiseur";
 const char txt_f_5s[] PROGMEM = "5 secondes (experimental)";
+const char txt_f_10s[] PROGMEM = "10 secondes";
 const char txt_f_15s[] PROGMEM = "15 secondes";
 const char txt_f_30s[] PROGMEM = "30 secondes";
 const char txt_f_45s[] PROGMEM = "45 secondes";
 const char txt_f_60s[] PROGMEM = "60 secondes";
+const char txt_f_beep_on[] PROGMEM = "ON";
+const char txt_f_beep_off[] PROGMEM = "OFF";
+const char txt_f_led_on[] PROGMEM = "ON";
+const char txt_f_led_off[] PROGMEM = "OFF";
 
 //Message Reboot, save & Resseting
 const char txt_m_reboot[] PROGMEM = "Redémarrage... Rafraichisement dans";
@@ -67,7 +73,8 @@ const char txt_m_save[] PROGMEM = "Sauvegarde de la configuration et redémarrag
 
 //Page MQTT
 const char txt_mqtt_title[] PROGMEM = "Paramétres MQTT";
-const char txt_mqtt_fn[] PROGMEM = "Nom affiché";
+const char txt_mqtt_fn[] PROGMEM = "ID de sujet";
+const char txt_mqtt_device_name[] PROGMEM = "Nom de l'appareil (affiché dans HA)";
 const char txt_mqtt_host[] PROGMEM = "Adresse serveur";
 const char txt_mqtt_port[] PROGMEM = "Port (défaut 1883)";
 const char txt_mqtt_user[] PROGMEM = "Utilisateur";
@@ -110,17 +117,22 @@ const char txt_ctrl_ctemp[] PROGMEM = "Température en cours";
 //Page Unit
 const char txt_unit_title[] PROGMEM = "Climatiseur configuration";
 const char txt_unit_temp[] PROGMEM = "Unité";
-const char txt_unit_maxtemp[] PROGMEM = "Température maximun";
-const char txt_unit_mintemp[] PROGMEM = "Température minimun";
+const char txt_unit_maxtemp[] PROGMEM = "Température maximale";
+const char txt_unit_mintemp[] PROGMEM = "Température minimale";
 const char txt_unit_steptemp[] PROGMEM = "Graduation température";
-const char txt_unit_modes[] PROGMEM = "Modes disponible";
 const char txt_unit_update_interval[] PROGMEM = "Intervalle de mise à jour";
+const char txt_unit_modes[] PROGMEM = "Modes disponible";
 const char txt_unit_password[] PROGMEM = "Mot de passe web";
+const char txt_unit_beep[] PROGMEM = "Bip";
+const char txt_unit_led[] PROGMEM = "LED";
+const char txt_unit_inside_offset[] PROGMEM = "Offset temp. intérieure";
+const char txt_unit_outside_offset[] PROGMEM = "Offset temp. extérieure";
+const char txt_unit_fan_levels[] PROGMEM = "Niveaux de ventilation";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "Authentification";
 const char txt_login_password[] PROGMEM = "Mot de passe";
-const char txt_login_sucess[] PROGMEM = "Authentifcation réussie, vous allez être redirigé dans quelques secondes.";
+const char txt_login_sucess[] PROGMEM = "Authentification réussie, vous allez être redirigé dans quelques secondes.";
 const char txt_login_fail[] PROGMEM = "Mauvais mot de passe! Essayer à nouveau.";
 
 //Page Upgrade
@@ -131,17 +143,20 @@ const char txt_upgrade_start[] PROGMEM = "Mise à jour lancée";
 //Page Upload
 const char txt_upload_nofile[] PROGMEM = "Pas de fichier sélectionné";
 const char txt_upload_filetoolarge[] PROGMEM = "Fichier plus gros que l'espace disponible";
-const char txt_upload_fileheader[] PROGMEM = "Entếte magique du fichier de commence pas par 0xE9";
+const char txt_upload_fileheader[] PROGMEM = "Entếte magique du fichier ne commence pas par 0xE9";
 const char txt_upload_flashsize[] PROGMEM = "La taille de la flash du fichier est plus large que la flash de l'équipement";
 const char txt_upload_buffer[] PROGMEM = "Erreur de comparaison du tampon d'envoi du fichier";
-const char txt_upload_failed[] PROGMEM = "Erreur d'envoie. Activer les logs option 3 pour plus d'information";
-const char txt_upload_aborted[] PROGMEM = "Envoie annulé";
+const char txt_upload_failed[] PROGMEM = "Erreur d'envoi. Activer les logs option 3 pour plus d'information";
+const char txt_upload_aborted[] PROGMEM = "Envoi annulé";
 const char txt_upload_code[] PROGMEM = "Code d'erreur d'envoi ";
 const char txt_upload_error[] PROGMEM = "Code d'erreur de mise à jour ( voir Updater.cpp) ";
 const char txt_upload_sucess[] PROGMEM = "Réussi.";
-const char txt_upload_refresh[] PROGMEM = "Rafaichissement dans ";
+const char txt_upload_refresh[] PROGMEM = "Rafraîchissement dans ";
 
 //Page Init
 const char txt_init_title[] PROGMEM = "Initialisation";
 const char txt_init_reboot_mes[] PROGMEM = "Redémarrage et connexion à votre WIFI. L'appareil doit apparaitre dans votre réseau";
 const char txt_init_reboot[] PROGMEM = "Redémarrage...";
+
+//Page logging
+const char txt_logging_title[] PROGMEM = "Journal";

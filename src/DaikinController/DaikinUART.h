@@ -51,6 +51,7 @@
 
 #define SERIAL_TIMEOUT 250
 
+String getHEXformatted(uint8_t *bytes, size_t len);
 
 struct ACResponse
 {
@@ -70,24 +71,61 @@ enum
    S21_WAIT,
 };
 
-const String S21queryCmds[] = {
-  "F1", 
-  "F3", //Powerful Mode (1)
-  "F4", 
-  "F5", //Error code
-  "F6", //Powerful Mode (2), comfort, quiet, streamer, etc.
-  // "F9",
-  "RH", 
-  "RI", 
-  "Ra", 
-  "RL", 
-  "Rd",
-  "RG", //Quiet Fan
-  "FM"  //Energy Meter
+// Query command indices — must match position in S21queryCmds[] array.
+// Used with s21SkipMask bitmask for capability detection and entity gating.
+// If the array is reordered, these defines must be updated to match.
+#define S21_QUERY_F2 1
+#define S21_QUERY_F6 5
+#define S21_QUERY_F8 7
+#define S21_QUERY_FC 11
+#define S21_QUERY_RD 19
+#define S21_QUERY_RE 20
+#define S21_QUERY_RN 26
+#define S21_QUERY_RX 27
+#define S21_QUERY_FM 31
+
+// S21 query commands — probed sequentially on first sync cycle.
+// NAK'd commands are skip-masked and never retried (until full reconnect).
+// One-shot commands (F2, F8, FC) self-skip after first successful read.
+// Unknown commands are kept for forward compatibility with newer Daikin units.
+// Tested on FTKQ v0: 19 of 32 supported, 13 NAK'd.
+const char* const S21queryCmds[] = {
+  "F1",         // 0  - Basic state (power, mode, temp, fan)
+  "F2",         // 1  - Capabilities (swing support)
+  "F3",         // 2  - Timer + Powerful (fallback)
+  "F4",         // 3  - Error code
+  "F5",         // 4  - Swing state
+  "F6",         // 5  - Powerful, comfort, quiet, streamer
+  "F7",         // 6  - Demand control + econo mode [PROBE]
+  "F8",         // 7  - Protocol version [PROBE]
+  "F9",         // 8  - Coarse indoor/outdoor temperature
+  "FA",         // 9  - Unknown (v2+)
+  "FB",         // 10 - Unknown (v2+)
+  "FC",         // 11 - Model identification
+  "FG",         // 12 - Unknown (v2+)
+  "FK",         // 13 - Unknown (v2+)
+  "FN",         // 14 - Unknown (v2+)
+  "FP",         // 15 - Unknown (v2+)
+  "FQ",         // 16 - Unknown (v2+)
+  "FS",         // 17 - Unknown (v2+)
+  "FT",         // 18 - Unknown (v2+)
+  "RD",         // 19 - ON timer setting (10-min periods)
+  "RE",         // 20 - OFF timer setting (10-min periods) [PROBE]
+  "RG",         // 21 - Fan speed (alternative)
+  "RH",         // 22 - Inside temperature (high res)
+  "RI",         // 23 - Coil temperature
+  "RL",         // 24 - Fan RPM
+  "RM",         // 25 - Target louver angle (degrees)
+  "RN",         // 26 - Measured louver angle (degrees)
+  "RX",         // 27 - Real target temperature (adjusted setpoint)
+  "Ra",         // 28 - Outside temperature (high res)
+  "Rd",         // 29 - Compressor frequency
+  "Re",         // 30 - Humidity
+  "FM"          // 31 - Energy Meter
   };
 
-const String S21setCmds[] = {
-  "D1", 
+const char* const S21setCmds[] = {
+  "D1",
   "D5"
   };
 
@@ -112,11 +150,13 @@ public:
   ACResponse getResponse();
   bool isConnected(){return this->connected;};
   uint8_t currentProtocol(){return this->protocol;};
+  bool lastResultWasNAK(){return this->lastNAK;};
 
 private:
 
   HardwareSerial *_serial;
   bool connected = false;
+  bool lastNAK = false;
   uint8_t protocol = PROTOCOL_UNKNOWN;
   ACResponse lastResponse;
   

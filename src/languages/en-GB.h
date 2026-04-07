@@ -55,6 +55,7 @@ const char txt_f_fh[] PROGMEM = "Fahrenheit";
 const char txt_f_allmodes[] PROGMEM = "All modes";
 const char txt_f_noheat[] PROGMEM = "All modes except heat";
 const char txt_f_5s[] PROGMEM = "5 seconds (experimental)";
+const char txt_f_10s[] PROGMEM = "10 seconds";
 const char txt_f_15s[] PROGMEM = "15 seconds";
 const char txt_f_30s[] PROGMEM = "30 seconds";
 const char txt_f_45s[] PROGMEM = "45 seconds";
@@ -71,7 +72,8 @@ const char txt_m_save[] PROGMEM = "Saving configuration and rebooting... Refresh
 
 //Page MQTT
 const char txt_mqtt_title[] PROGMEM = "MQTT Parameters";
-const char txt_mqtt_fn[] PROGMEM = "Friendly name";
+const char txt_mqtt_fn[] PROGMEM = "Topic ID";
+const char txt_mqtt_device_name[] PROGMEM = "Device name (display in HA)";
 const char txt_mqtt_host[] PROGMEM = "Host";
 const char txt_mqtt_port[] PROGMEM = "Port (default 1883)";
 const char txt_mqtt_user[] PROGMEM = "User";
@@ -122,6 +124,9 @@ const char txt_unit_modes[] PROGMEM = "Mode support";
 const char txt_unit_password[] PROGMEM = "Web password";
 const char txt_unit_beep[] PROGMEM = "Beep";
 const char txt_unit_led[] PROGMEM = "LED";
+const char txt_unit_inside_offset[] PROGMEM = "Inside Temp Offset";
+const char txt_unit_outside_offset[] PROGMEM = "Outside Temp Offset";
+const char txt_unit_fan_levels[] PROGMEM = "Fan speed levels";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "Authentication";

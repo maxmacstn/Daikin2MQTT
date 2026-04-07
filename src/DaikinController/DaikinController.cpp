@@ -33,21 +33,21 @@ const char *X50_MODE_MAP[8] = {"FAN", "HEAT", "COOL", "AUTO", "4", "5", "6", "DR
 //{"fan_only", "heat", "cool", "auto", "4", "5", "6", "dry"}
 
 const byte S21_FAN[7] = {'A', 'B', '3', '4', '5', '6', '7'};
-const char *S21_FAN_MAP[7] = {"AUTO", "QUIET", "1", "2", "3", "4", "5"};
+const char *S21_FAN_MAP[7] = {"auto", "quiet", "1", "2", "3", "4", "5"};
 
 // const byte X50_FAN[7] = {0, 1, 2, 3, 4, 5, 6};
 const byte X50_FAN[7] = {0, 1, 2, 3, 4, 5, 6};
-const char *X50_FAN_MAP[7] = {"AUTO", "1", "2", "3", "4", "5", "6"};
+const char *X50_FAN_MAP[7] = {"auto", "1", "2", "3", "4", "5", "6"};
 
 const byte X50_VERTICALVANE[6] = {0, 1, 2, 3, 4, 7};
-const char *X50_VERTICALVANE_MAP[6] = {"0", "1", "2", "3", "4", "SWING"};
+const char *X50_VERTICALVANE_MAP[6] = {"0", "1", "2", "3", "4", "swing"};
 // {"auto", "1", "2", "3", "4", "5", "night"}
 
 const byte VERTICALVANE[2] = {'0', '1'};
-const char *VERTICALVANE_MAP[2] = {"HOLD", "SWING"};
+const char *VERTICALVANE_MAP[2] = {"hold", "swing"};
 
 const byte HORIZONTALVANE[2] = {'0', '1'};
-const char *HORIZONTALVANE_MAP[2] = {"HOLD", "SWING"};
+const char *HORIZONTALVANE_MAP[2] = {"hold", "swing"};
 
 
 const byte S21_POWERFUL[2] = {0x00, 0x02};
@@ -157,11 +157,14 @@ void DaikinController::onFirstQuerySuccess()
   }
 }
 
+// sync() — Main polling loop, called every ~10s from main loop.
+// First cycle: probes all 32 S21 commands. NAK'd commands get skip-masked.
+// Subsequent cycles: only polls supported commands (typically 17-19 on v0 units).
+// One-shot commands (F2 capabilities, F8 protocol version) self-skip after first ACK.
+// After sync, parseResponse() populates currentSettings/currentStatus which
+// triggers the MQTT status callback in main.cpp.
 bool DaikinController::sync()
 {
-  // Log.ln(TAG, "Start Sync");
-  // delay(100);
-
   static bool firstSuccess = true;
   bool success = true;
   bool res = false;
@@ -174,12 +177,13 @@ bool DaikinController::sync()
   if (daikinUART->currentProtocol() == PROTOCOL_S21)
   {
 
-    uint8_t size = sizeof(S21queryCmds) / sizeof(String);
+    uint8_t size = sizeof(S21queryCmds) / sizeof(S21queryCmds[0]);
 
     for (int i = 0; i < size; i++)
     {
+      if (s21SkipMask & (1 << i)) continue;
 
-      Log.ln(TAG, String("Send command: " + S21queryCmds[i]));
+      Log.ln(TAG, "Send command: %s", S21queryCmds[i]);
 
       res = daikinUART->sendCommandS21(S21queryCmds[i][0], S21queryCmds[i][1]);
       if (res)
@@ -187,8 +191,25 @@ bool DaikinController::sync()
         ACResponse response = daikinUART->getResponse();
         parseResponse(&response);
       }
-      // ("Result: %s\n\n", res ? "Success" : "Failed");
+      else if (daikinUART->lastResultWasNAK())
+      {
+        s21SkipMask |= (1 << i);
+        Log.ln(TAG, "Command %s not supported, skipping", S21queryCmds[i]);
+      }
       success = success | res;
+    }
+
+    // RzB2: read-only powerful/defrost status (fallback when F6 unsupported)
+    if ((s21SkipMask & (1 << 5)) && !_skipRzB2) { // F6 at index 5
+      uint8_t rzPayload[] = {'B', '2'};
+      res = daikinUART->sendCommandS21('R', 'z', rzPayload, 2);
+      if (res) {
+        ACResponse response = daikinUART->getResponse();
+        parseResponse(&response);
+      } else if (daikinUART->lastResultWasNAK()) {
+        _skipRzB2 = true;
+        Log.ln(TAG, "RzB2 not supported, skipping");
+      }
     }
   }
 
@@ -314,7 +335,27 @@ bool DaikinController::parseResponse(ACResponse *response)
         { // Set default value if HVAC does not have current setpoint Eg. After power outage.
           this->currentSettings.temperature = 25;
         }
-        newSettings = currentSettings; // we need current AC setting for future control.
+        // Copy AC's actual state to newSettings so future commands use current values.
+        // Guard: don't overwrite if user has pending changes not yet sent.
+        // Preserve remoteEnable: S21 doesn't report lock state, so the AC's
+        // currentSettings always has the default. We must keep the user's choice.
+        if (!pendingSettings.hasPending())
+          syncNewSettings();
+        return true;
+
+      case '2': // F2 -> G2 -- Hardware capabilities (static, read once)
+        _supportsVerticalSwing = (payload[0] & 0x04) != 0;   // bit 2
+        _supportsHorizontalSwing = (payload[0] & 0x08) != 0; // bit 3
+        Log.ln(TAG, "Capabilities: vSwing=%d hSwing=%d", _supportsVerticalSwing, _supportsHorizontalSwing);
+        s21SkipMask |= (1 << S21_QUERY_F2);
+        return true;
+
+      case '3': // F3 -> G3 -- Timer and powerful status (when F6 unsupported)
+        this->currentStatus.timerMode = payload[0] - '0';
+        // If F6 is unsupported, read powerful from G3 byte 3 bit 1
+        if (s21SkipMask & (1 << S21_QUERY_F6)) {
+          this->currentSettings.powerful = (payload[3] & 0x02) ? S21_POWERFUL_MAP[1] : S21_POWERFUL_MAP[0];
+        }
         return true;
 
       case '4': // F4 -> G4 -- Error code
@@ -333,22 +374,67 @@ bool DaikinController::parseResponse(ACResponse *response)
       case '5': // F5 -> G5 -- Swing state
         this->currentSettings.verticalVane = (payload[0] & 1) ? VERTICALVANE_MAP[1] : VERTICALVANE_MAP[0];
         this->currentSettings.horizontalVane = (payload[0] & 2) ? HORIZONTALVANE_MAP[1] : HORIZONTALVANE_MAP[0];
-        newSettings = currentSettings; // we need current AC setting for future control.
+        if (!pendingSettings.hasPending())
+          syncNewSettings();
         return true;
-      
-      case '6':
-        this->currentSettings.powerful = (payload[0] == '0')? S21_POWERFUL_MAP[0]: S21_POWERFUL_MAP[1];
+
+      case '6': // F6 -> G6 -- Powerful/comfort/quiet/streamer
+        this->currentSettings.powerful = (payload[0] & 0x02) ? S21_POWERFUL_MAP[1] : S21_POWERFUL_MAP[0];
         return true;
 
 
-      case '9': // F9 -> G9 -- Temperature
-        this->currentStatus.roomTemperature = (float)((signed)payload[0] - 0x80) / 2;
-        this->currentStatus.outsideTemperature = (float)((signed)payload[1] - 0x80) / 2;
-        newSettings = currentSettings; // we need current AC setting for future control.
+      case '7': // F7 -> G7 -- Demand + econo mode
+      {
+        int demand = (payloadSize > 0) ? (payload[0] - '0') : -1;
+        bool econo = (payloadSize > 1) ? (payload[1] & 0x02) : false;
+        Log.ln(TAG, "G7 Demand=%d Econo=%d (raw: %02X %02X %02X %02X)", demand, econo,
+          payloadSize > 0 ? payload[0] : 0, payloadSize > 1 ? payload[1] : 0,
+          payloadSize > 2 ? payload[2] : 0, payloadSize > 3 ? payload[3] : 0);
         return true;
+      }
+
+      case '8': // F8 -> G8 -- Protocol version (static, read once)
+      {
+        uint8_t protoVer = (payloadSize > 1) ? (payload[1] & ~0x30) : 0;
+        Log.ln(TAG, "G8 Protocol version=%d (raw: %02X %02X %02X)", protoVer,
+          payloadSize > 0 ? payload[0] : 0, payloadSize > 1 ? payload[1] : 0,
+          payloadSize > 2 ? payload[2] : 0);
+        s21SkipMask |= (1 << S21_QUERY_F8);
+        return true;
+      }
+
+      case '9': // F9 -> G9 -- Coarse temperatures (diagnostic only, RH/Ra are higher resolution)
+      {
+        float f9Room = (float)((signed)payload[0] - 0x80) / 2;
+        float f9Outside = (float)((signed)payload[1] - 0x80) / 2;
+        Log.ln(TAG, "F9 coarse temps - Room: %.1f Outside: %.1f", f9Room, f9Outside);
+        return true;
+      }
+
+      case 'C': // FC -> GC -- Model identification (static, read once)
+      {
+        char model[32] = {0};
+        int len = (payloadSize > 31) ? 31 : payloadSize;
+        for (int i = 0; i < len; i++) {
+          if (isalnum(payload[i]) || payload[i] == '-' || payload[i] == ' ')
+            model[i] = payload[i];
+          else
+            break;
+        }
+        Log.ln(TAG, "GC Model: %s (raw: %d bytes)", model, payloadSize);
+        s21SkipMask |= (1 << S21_QUERY_FC);
+        return true;
+      }
 
       case 'M':                                                                  // FM -> GM -- Energy meter
         this->currentStatus.energyMeter = s21_decode_hex_sensor(payload) / 10.0; // kWh
+        return true;
+
+      default: // Log raw payload for unknown G-responses
+        Log.ln(TAG, "G%c raw (%d bytes): %02X %02X %02X %02X %02X %02X", cmd2_in, payloadSize,
+          payloadSize > 0 ? payload[0] : 0, payloadSize > 1 ? payload[1] : 0,
+          payloadSize > 2 ? payload[2] : 0, payloadSize > 3 ? payload[3] : 0,
+          payloadSize > 4 ? payload[4] : 0, payloadSize > 5 ? payload[5] : 0);
         return true;
       }
 
@@ -362,34 +448,85 @@ bool DaikinController::parseResponse(ACResponse *response)
       case 'I': // Coil temperature
         this->currentStatus.coilTemperature = temp_bytes_to_c10(payload) / 10.0;
         return true;
-      case 'a': // Outside temperature
-        this->currentStatus.outsideTemperature = temp_bytes_to_c10(payload) / 10.0;
+      case 'a': // Outside temperature — some v0 units return a fixed value
+      {
+        float temp = temp_bytes_to_c10(payload) / 10.0;
+        this->currentStatus.outsideTemperature = temp;
+        if (_firstOutsideTemp == -999) _firstOutsideTemp = temp;
+        else if (temp != _firstOutsideTemp && !_outsideTempChanged) { _outsideTempChanged = true; _rediscoverNeeded = true; }
         return true;
+      }
       case 'L': // Fan speed
         this->currentStatus.fanRPM = bytes_to_num(&payload[0], payloadSize) * 10;
         return true;
-      case 'd': // Compressor state / frequency? Idle if 0.
-        this->currentStatus.operating = !(payload[0] == '0' && payload[1] == '0' && payload[2] == '0');
-        this->currentStatus.compressorFrequency = (payload[0] - '0') + (payload[1] - '0') * 10 + (payload[2] - '0') * 100;
+      case 'D': // RD -> SD -- ON timer (10-min periods)
+        this->currentStatus.onTimerMinutes = bytes_to_num(&payload[0], payloadSize) * 10;
         return true;
+      case 'E': // RE -> SE -- OFF timer (10-min periods)
+        this->currentStatus.offTimerMinutes = bytes_to_num(&payload[0], payloadSize) * 10;
+        return true;
+      case 'M': // RM -> SM -- Target louver angle (degrees, diagnostic only)
+        return true;
+      case 'N': // RN -> SN -- Measured louver angle (degrees)
+        this->currentStatus.louverAngle = temp_bytes_to_c10(payload) / 10.0;
+        return true;
+      case 'X': // RX -> SX -- Real target temperature (adjusted setpoint)
+        this->currentStatus.realTargetTemp = temp_bytes_to_c10(payload) / 10.0;
+        return true;
+      case 'd': // Rd -> Sd -- Compressor frequency (Hz).
+      // Some v0 units ACK this command but always return 000 even when the compressor
+      // is physically running (coil temp drops to 6°C, fan at 1100+ RPM).
+      // We track whether Rd has EVER returned non-zero (_compressorFreqSeen) to decide
+      // whether to expose the Compressor Frequency entity in HA. If it never changes,
+      // the entity stays hidden to avoid showing misleading "0 Hz" while cooling.
+      {
+        int freq = (payload[0] - '0') + (payload[1] - '0') * 10 + (payload[2] - '0') * 100;
+        this->currentStatus.compressorFrequency = freq;
+        if (freq > 0 && !_compressorFreqSeen) { _compressorFreqSeen = true; _rediscoverNeeded = true; }
+        if (freq > 0) {
+          this->currentStatus.operating = true;
+        } else {
+          // Fallback: consider operating if power ON, mode active, and fan spinning
+          bool powerOn = String(this->currentSettings.power).equalsIgnoreCase("ON");
+          bool modeActive = !String(this->currentSettings.mode).equalsIgnoreCase("DISABLED");
+          this->currentStatus.operating = powerOn && modeActive && (this->currentStatus.fanRPM > 0);
+        }
+        return true;
+      }
+      case 'e': // Re -> Se -- Humidity
+      {
+        int humidity = bytes_to_num(&payload[0], payloadSize);
+        Log.ln(TAG, "Se Humidity=%d%%", humidity);
+        return true;
+      }
       case 'G':
         if (payloadSize == 1)
         {
-          this->currentSettings.fan = lookupByteMapValue(S21_FAN_MAP, S21_FAN, 7, payload[0]);
-          Log.ln(TAG, "New fan speed found " + String(this->currentSettings.fan));
+          const char* newFan = lookupByteMapValue(S21_FAN_MAP, S21_FAN, 7, payload[0]);
+          if (newFan != this->currentSettings.fan) {
+            Log.ln(TAG, "Fan speed changed to %s", newFan);
+            this->currentSettings.fan = newFan;
+          }
           use_RG_fan = true;
           return true;
         }
         return false;
 
 
-      default:
-        if (payloadSize > 3)
-        {
-          int8_t temp = temp_bytes_to_c10(payload);
-          Serial.println("Unknown temp: ");
+      case 'z': // Rz -> Sz -- Extended status (sub-command in payload[0..1])
+        if (payloadSize >= 3 && payload[0] == 'B' && payload[1] == '2') {
+          // SzB2: bit 0 = powerful, bit 1 = defrost
+          this->currentSettings.powerful = (payload[2] & 0x01) ? S21_POWERFUL_MAP[1] : S21_POWERFUL_MAP[0];
+          return true;
         }
         return false;
+
+      default: // Log raw payload for unknown S-responses
+        Log.ln(TAG, "S%c raw (%d bytes): %02X %02X %02X %02X %02X %02X", cmd2_in, payloadSize,
+          payloadSize > 0 ? payload[0] : 0, payloadSize > 1 ? payload[1] : 0,
+          payloadSize > 2 ? payload[2] : 0, payloadSize > 3 ? payload[3] : 0,
+          payloadSize > 4 ? payload[4] : 0, payloadSize > 5 ? payload[5] : 0);
+        return true;
       }
     }
 
@@ -448,7 +585,8 @@ bool DaikinController::parseResponse(ACResponse *response)
           this->currentStatus.errorCode = "";
       }
 
-      newSettings = currentSettings;
+      if (!pendingSettings.hasPending())
+        syncNewSettings();
       return true;
     }
     if (cmd == 0xCB && payloadSize >= 2)
@@ -480,7 +618,8 @@ bool DaikinController::parseResponse(ACResponse *response)
       if ((t = (int16_t)(payload[8] + (payload[9] << 8)) / 128.0) && t < 100)
       {
         this->currentSettings.temperature = round(t * 2.0) / 2.0;
-        newSettings = currentSettings;
+        if (!pendingSettings.hasPending())
+          newSettings = currentSettings;
       }
       return true;
     }
@@ -642,24 +781,31 @@ bool DaikinController::update(bool updateAll)
       pendingSettings.vane = false;
     }
     
-    if (pendingSettings.specialMode || updateAll)   
+    // Powerful mode: D6 is the primary command (byte 0, bit 1 = powerful).
+    // If F6 was NAK'd (unit doesn't support D6), fall back to D3 (byte 3, bit 1).
+    // Some units ACK D3 but ignore it — this is a known S21 protocol limitation.
+    // See: https://github.com/revk/ESP32-Faikout/issues/817
+    if (pendingSettings.specialMode || updateAll)
     {
-      // D6 not working with FTKQ/FTKC, response NAK
-      payload[0] = '0' + S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
-      payload[1] = '0';
-      payload[2] = '0';
-      payload[3] = '0';
-      res = daikinUART->sendCommandS21('D', '6', payload, 4) & res;
-
-      // Does not work on FTKQ/FTKC Either
-      // payload[0] = '0'+ S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];    //Timer stuff
-      // payload[1] = '0'+ S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
-      // payload[2] = '0'+ S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
-      // payload[3] = '0' + S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
-      // res = daikinUART->sendCommandS21('D', '3', payload, 4) & res;
-
+      bool sent = false;
+      if (!(s21SkipMask & (1 << S21_QUERY_F6))) { // try D6
+        payload[0] = '0' + S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
+        payload[1] = '0';
+        payload[2] = '0';
+        payload[3] = '0';
+        sent = daikinUART->sendCommandS21('D', '6', payload, 4);
+        if (!sent) Log.ln(TAG, "D6 failed, will try D3 fallback");
+      }
+      if (!sent) { // F6 NAK'd or D6 failed → try D3 (powerful in byte 3)
+        payload[0] = '0';
+        payload[1] = '0';
+        payload[2] = '0';
+        payload[3] = '0' + S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
+        sent = daikinUART->sendCommandS21('D', '3', payload, 4);
+        if (!sent) Log.ln(TAG, "D3 fallback also failed — powerful mode not supported");
+      }
+      res = res & sent;
       pendingSettings.specialMode = false;
-
     }
         
     if (pendingSettings.ACconfig || updateAll)
@@ -923,7 +1069,7 @@ const char *DaikinController::getHorizontalVaneSetting()
 }
 void DaikinController::setHorizontalVaneSetting(const char *setting)
 {
-  if (daikinUART->currentProtocol())
+  if (daikinUART->currentProtocol() == PROTOCOL_S21)
   {
     int index = lookupByteMapIndex(HORIZONTALVANE_MAP, 2, setting);
     if (index > -1)

@@ -1,7 +1,7 @@
 /*
   Daikin2mqtt - Daikin Heat Pump to MQTT control for Home Assistant.
   Copyright (c) 2024 - MaxMacSTN
-  
+
   Based on Mitsubishi2MQTT by gysmo38, dzungpv, shampeon, endeavour, jascdk, chrdavis, alekslyse.  All right reserved.
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -28,6 +28,7 @@ const char txt_MQTT[] PROGMEM = "MQTT";
 const char txt_WIFI[] PROGMEM = "Wi-Fi";
 const char txt_unit[] PROGMEM = "Unità";
 const char txt_others[] PROGMEM = "Altri parametri";
+const char txt_logging[] PROGMEM = "Registro";
 const char txt_reset[] PROGMEM = "Reset configurazione";
 const char txt_reset_confirm[] PROGMEM = "Sei sicuro di voler resettare l'unità?";
 
@@ -49,16 +50,21 @@ const char txt_f_fan[] PROGMEM = "Ventilazione";
 const char txt_f_quiet[] PROGMEM = "Silenzioso";
 const char txt_f_speed[] PROGMEM = "Velocità";
 const char txt_f_swing[] PROGMEM = "Oscillazione";
-const char txt_f_pos[] PROGMEM = "Posizione";
+const char txt_f_hold[] PROGMEM = "HOLD";
 const char txt_f_celsius[] PROGMEM = "Celsius";
 const char txt_f_fh[] PROGMEM = "Fahrenheit";
 const char txt_f_allmodes[] PROGMEM = "Tutte le modalità";
 const char txt_f_noheat[] PROGMEM = "Tutte le modalità escluso riscaldamento";
 const char txt_f_5s[] PROGMEM = "5 secondi (experimental)";
+const char txt_f_10s[] PROGMEM = "10 secondi";
 const char txt_f_15s[] PROGMEM = "15 secondi";
 const char txt_f_30s[] PROGMEM = "30 secondi";
 const char txt_f_45s[] PROGMEM = "45 secondi";
 const char txt_f_60s[] PROGMEM = "60 secondi";
+const char txt_f_beep_on[] PROGMEM = "ON";
+const char txt_f_beep_off[] PROGMEM = "OFF";
+const char txt_f_led_on[] PROGMEM = "ON";
+const char txt_f_led_off[] PROGMEM = "OFF";
 
 
 //Page Reboot, save & Resseting
@@ -68,7 +74,8 @@ const char txt_m_save[] PROGMEM = "Salvataggio configurazione e riavvio... Refre
 
 //Page MQTT
 const char txt_mqtt_title[] PROGMEM = "Parametri MQTT";
-const char txt_mqtt_fn[] PROGMEM = "Nome familiare";
+const char txt_mqtt_fn[] PROGMEM = "ID argomento";
+const char txt_mqtt_device_name[] PROGMEM = "Nome dispositivo (mostrato in HA)";
 const char txt_mqtt_host[] PROGMEM = "Host";
 const char txt_mqtt_port[] PROGMEM = "Porta (default 1883)";
 const char txt_mqtt_user[] PROGMEM = "User";
@@ -76,7 +83,7 @@ const char txt_mqtt_password[] PROGMEM = "Password";
 const char txt_mqtt_topic[] PROGMEM = "Topic";
 
 //Page Others
-const char txt_others_title[] PROGMEM = "Altri parametetri";
+const char txt_others_title[] PROGMEM = "Altri parametri";
 const char txt_others_haauto[] PROGMEM = "HA Autodiscovery";
 const char txt_others_hatopic[] PROGMEM = "HA Autodiscovery topic";
 const char txt_others_availability_report[] PROGMEM = "HA Availability report";
@@ -117,11 +124,16 @@ const char txt_unit_steptemp[] PROGMEM = "Step temperatura";
 const char txt_unit_modes[] PROGMEM = "Modalità supportate";
 const char txt_unit_update_interval[] PROGMEM = "Intervallo di aggiornamento";
 const char txt_unit_password[] PROGMEM = "Password Web";
+const char txt_unit_beep[] PROGMEM = "Beep";
+const char txt_unit_led[] PROGMEM = "LED";
+const char txt_unit_inside_offset[] PROGMEM = "Offset temp. interna";
+const char txt_unit_outside_offset[] PROGMEM = "Offset temp. esterna";
+const char txt_unit_fan_levels[] PROGMEM = "Livelli velocità ventilatore";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "Autenticazione";
 const char txt_login_password[] PROGMEM = "Password";
-const char txt_login_sucess[] PROGMEM = "Login avvenuto, verrai reinderizzato tra pochi secondi.";
+const char txt_login_sucess[] PROGMEM = "Login avvenuto, verrai reindirizzato tra pochi secondi.";
 const char txt_login_fail[] PROGMEM = "Username/password errati! Riprova.";
 
 //Page Upgrade
@@ -146,3 +158,6 @@ const char txt_upload_refresh[] PROGMEM = "Refresh in";
 const char txt_init_title[] PROGMEM = "Setup iniziale";
 const char txt_init_reboot_mes[] PROGMEM = "Riavvio e connessione alla tua rete WiFi! Dovresti vederlo nella lista del tuo Access Point.";
 const char txt_init_reboot[] PROGMEM = "Riavvio...";
+
+//Page logging
+const char txt_logging_title[] PROGMEM = "Registro";

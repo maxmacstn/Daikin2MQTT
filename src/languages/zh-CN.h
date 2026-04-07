@@ -1,7 +1,7 @@
 /*
   Daikin2mqtt - Daikin Heat Pump to MQTT control for Home Assistant.
   Copyright (c) 2024 - MaxMacSTN
-  
+
   Based on Mitsubishi2MQTT by gysmo38, dzungpv, shampeon, endeavour, jascdk, chrdavis, alekslyse.  All right reserved.
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -27,6 +27,7 @@ const char txt_MQTT[] PROGMEM = "MQTT";
 const char txt_WIFI[] PROGMEM = "WIFI";
 const char txt_unit[] PROGMEM = "单元";
 const char txt_others[] PROGMEM = "其他";
+const char txt_logging[] PROGMEM = "日志";
 const char txt_reset[] PROGMEM = "重置设置";
 const char txt_reset_confirm[] PROGMEM = "是否确认重置此单元?";
 
@@ -41,24 +42,28 @@ const char txt_login[] PROGMEM = "登录";
 const char txt_f_on[] PROGMEM = "开启";
 const char txt_f_off[] PROGMEM = "关闭";
 const char txt_f_auto[] PROGMEM = "自动";
+const char txt_f_quiet[] PROGMEM = "安静";
 const char txt_f_heat[] PROGMEM = "制暖";
 const char txt_f_dry[] PROGMEM = "干燥";
 const char txt_f_cool[] PROGMEM = "制冷";
 const char txt_f_fan[] PROGMEM = "送风";
-const char txt_f_quiet[] PROGMEM = "安静";
 const char txt_f_speed[] PROGMEM = "风速";
 const char txt_f_swing[] PROGMEM = "摆动";
-const char txt_f_pos[] PROGMEM = "风向";
+const char txt_f_hold[] PROGMEM = "固定";
 const char txt_f_celsius[] PROGMEM = "摄氏";
 const char txt_f_fh[] PROGMEM = "华氏";
 const char txt_f_allmodes[] PROGMEM = "全部模式";
 const char txt_f_noheat[] PROGMEM = "除制暖外全部模式";
 const char txt_f_5s[] PROGMEM = "5秒";
+const char txt_f_10s[] PROGMEM = "10秒";
 const char txt_f_15s[] PROGMEM = "15秒";
 const char txt_f_30s[] PROGMEM = "30秒";
 const char txt_f_45s[] PROGMEM = "45秒";
 const char txt_f_60s[] PROGMEM = "60秒";
-
+const char txt_f_beep_on[] PROGMEM = "开";
+const char txt_f_beep_off[] PROGMEM = "关";
+const char txt_f_led_on[] PROGMEM = "开";
+const char txt_f_led_off[] PROGMEM = "关";
 
 //Page Reboot, save & Resseting
 const char txt_m_reboot[] PROGMEM = "重启中... 刷新";
@@ -67,7 +72,8 @@ const char txt_m_save[] PROGMEM = "保持配置并重启中... 刷新";
 
 //Page MQTT
 const char txt_mqtt_title[] PROGMEM = "MQTT 参数";
-const char txt_mqtt_fn[] PROGMEM = "友好名称";
+const char txt_mqtt_fn[] PROGMEM = "主题ID";
+const char txt_mqtt_device_name[] PROGMEM = "设备名称（在HA中显示）";
 const char txt_mqtt_host[] PROGMEM = "主机";
 const char txt_mqtt_port[] PROGMEM = "端口(默认1883)";
 const char txt_mqtt_user[] PROGMEM = "账户";
@@ -84,7 +90,7 @@ const char txt_others_debug[] PROGMEM = "调试";
 //Page Status
 const char txt_status_title[] PROGMEM = "状态";
 const char txt_status_hvac[] PROGMEM = "空调状态";
-const char txt_retries_hvac[] PROGMEM = "HVAC Connection Retries";
+const char txt_retries_hvac[] PROGMEM = "空调连接重试次数";
 const char txt_status_mqtt[] PROGMEM = "MQTT状态";
 const char txt_status_wifi[] PROGMEM = "WIFI信号";
 const char txt_status_connect[] PROGMEM = "已连接";
@@ -113,9 +119,14 @@ const char txt_unit_temp[] PROGMEM = "温度单位";
 const char txt_unit_maxtemp[] PROGMEM = "最大温度";
 const char txt_unit_mintemp[] PROGMEM = "最小温度";
 const char txt_unit_steptemp[] PROGMEM = "温度步长";
-const char txt_unit_modes[] PROGMEM = "支持模式";
 const char txt_unit_update_interval[] PROGMEM = "更新间隔";
+const char txt_unit_modes[] PROGMEM = "支持模式";
 const char txt_unit_password[] PROGMEM = "网页密码";
+const char txt_unit_beep[] PROGMEM = "蜂鸣器";
+const char txt_unit_led[] PROGMEM = "LED";
+const char txt_unit_inside_offset[] PROGMEM = "室内温度偏移";
+const char txt_unit_outside_offset[] PROGMEM = "室外温度偏移";
+const char txt_unit_fan_levels[] PROGMEM = "风速级数";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "授权";
@@ -145,3 +156,6 @@ const char txt_upload_refresh[] PROGMEM = "刷新";
 const char txt_init_title[] PROGMEM = "初始化设置";
 const char txt_init_reboot_mes[] PROGMEM = "重启并连接至你的WiFi网络! 你将在访问点列表中见到本机.";
 const char txt_init_reboot[] PROGMEM = "重启中...";
+
+//Page logging
+const char txt_logging_title[] PROGMEM = "日志";

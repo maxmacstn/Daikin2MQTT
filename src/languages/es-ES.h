@@ -1,7 +1,7 @@
 /*
   Daikin2mqtt - Daikin Heat Pump to MQTT control for Home Assistant.
   Copyright (c) 2024 - MaxMacSTN
-  
+
   Based on Mitsubishi2MQTT by gysmo38, dzungpv, shampeon, endeavour, jascdk, chrdavis, alekslyse.  All right reserved.
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -28,6 +28,7 @@ const char txt_MQTT[] PROGMEM = "MQTT";
 const char txt_WIFI[] PROGMEM = "WIFI";
 const char txt_unit[] PROGMEM = "Aparato";
 const char txt_others[] PROGMEM = "Otros";
+const char txt_logging[] PROGMEM = "Registro";
 const char txt_reset[] PROGMEM = "Restablecer controlador";
 const char txt_reset_confirm[] PROGMEM = "Confirmar restablecimiento de controlador?";
 
@@ -42,32 +43,38 @@ const char txt_login[] PROGMEM = "LOGIN";
 const char txt_f_on[] PROGMEM = "ON";
 const char txt_f_off[] PROGMEM = "OFF";
 const char txt_f_auto[] PROGMEM = "AUTO";
+const char txt_f_quiet[] PROGMEM = "QUIET";
 const char txt_f_heat[] PROGMEM = "HEAT";
 const char txt_f_dry[] PROGMEM = "DRY";
 const char txt_f_cool[] PROGMEM = "COOL";
 const char txt_f_fan[] PROGMEM = "FAN";
-const char txt_f_quiet[] PROGMEM = "QUIET";
 const char txt_f_speed[] PROGMEM = "SPEED";
 const char txt_f_swing[] PROGMEM = "SWING";
-const char txt_f_pos[] PROGMEM = "POSITION";
+const char txt_f_hold[] PROGMEM = "HOLD";
 const char txt_f_celsius[] PROGMEM = "Celsius";
 const char txt_f_fh[] PROGMEM = "Fahrenheit";
 const char txt_f_allmodes[] PROGMEM = "Todos los modos";
 const char txt_f_noheat[] PROGMEM = "Todos los modos excepto calor";
 const char txt_f_5s[] PROGMEM = "5 seconds (experimental)";
+const char txt_f_10s[] PROGMEM = "10 segundos";
 const char txt_f_15s[] PROGMEM = "15 segundos";
 const char txt_f_30s[] PROGMEM = "30 segundos";
 const char txt_f_45s[] PROGMEM = "45 segundos";
 const char txt_f_60s[] PROGMEM = "60 segundos";
+const char txt_f_beep_on[] PROGMEM = "ON";
+const char txt_f_beep_off[] PROGMEM = "OFF";
+const char txt_f_led_on[] PROGMEM = "ON";
+const char txt_f_led_off[] PROGMEM = "OFF";
 
 //Page Reboot, save & Resseting
 const char txt_m_reboot[] PROGMEM = "Reiniciando... Refrescando en";
-const char txt_m_reset[] PROGMEM = "Restableciendo... Sonectando a SSID";
-const char txt_m_save[] PROGMEM = "Guardando configuración and reiniciando... Refrecando en";
+const char txt_m_reset[] PROGMEM = "Restableciendo... Conectando a SSID";
+const char txt_m_save[] PROGMEM = "Guardando configuración y reiniciando... Refrescando en";
 
 //Page MQTT
 const char txt_mqtt_title[] PROGMEM = "Parametros MQTT";
-const char txt_mqtt_fn[] PROGMEM = "Nombre amigable";
+const char txt_mqtt_fn[] PROGMEM = "ID de tema";
+const char txt_mqtt_device_name[] PROGMEM = "Nombre del dispositivo (mostrado en HA)";
 const char txt_mqtt_host[] PROGMEM = "Servidor";
 const char txt_mqtt_port[] PROGMEM = "Puerto (1883 por defecto)";
 const char txt_mqtt_user[] PROGMEM = "Usuario";
@@ -87,7 +94,7 @@ const char txt_status_hvac[] PROGMEM = "Estado HVAC";
 const char txt_retries_hvac[] PROGMEM = "HVAC Connection Retries";
 const char txt_status_mqtt[] PROGMEM = "Estado MQTT";
 const char txt_status_wifi[] PROGMEM = "WIFI RSSI";
-const char txt_status_connect[] PROGMEM = "CONNECTADO";
+const char txt_status_connect[] PROGMEM = "CONECTADO";
 const char txt_status_disconnect[] PROGMEM = "DESCONECTADO";
 
 //Page WIFI
@@ -113,9 +120,14 @@ const char txt_unit_temp[] PROGMEM = "Temperatura del aparato";
 const char txt_unit_maxtemp[] PROGMEM = "Temperatura máxima";
 const char txt_unit_mintemp[] PROGMEM = "Temperatura mínima";
 const char txt_unit_steptemp[] PROGMEM = "Variación de temperatura";
-const char txt_unit_modes[] PROGMEM = "Modos soportados";
 const char txt_unit_update_interval[] PROGMEM = "Intervalo de actualización";
+const char txt_unit_modes[] PROGMEM = "Modos soportados";
 const char txt_unit_password[] PROGMEM = "Contraseña interfaz";
+const char txt_unit_beep[] PROGMEM = "Beep";
+const char txt_unit_led[] PROGMEM = "LED";
+const char txt_unit_inside_offset[] PROGMEM = "Offset temp. interior";
+const char txt_unit_outside_offset[] PROGMEM = "Offset temp. exterior";
+const char txt_unit_fan_levels[] PROGMEM = "Niveles de ventilador";
 
 //Page Login
 const char txt_login_title[] PROGMEM = "Autentificación";
@@ -139,10 +151,12 @@ const char txt_upload_aborted[] PROGMEM = "Subida abortada";
 const char txt_upload_code[] PROGMEM = "Código de error de subida";
 const char txt_upload_error[] PROGMEM = "Código de error de subida (mirar en Updater.cpp) ";
 const char txt_upload_sucess[] PROGMEM = "Satisfactorio";
-const char txt_upload_refresh[] PROGMEM = "Refescando en ";
-
+const char txt_upload_refresh[] PROGMEM = "Refrescando en ";
 
 //Page Init
 const char txt_init_title[] PROGMEM = "Configuración inicial";
 const char txt_init_reboot_mes[] PROGMEM = "Reiniciando y conectando a su red WiFi! Debería ver el equipo en su punto de acceso.";
 const char txt_init_reboot[] PROGMEM = "Reiniciando...";
+
+//Page logging
+const char txt_logging_title[] PROGMEM = "Registro";

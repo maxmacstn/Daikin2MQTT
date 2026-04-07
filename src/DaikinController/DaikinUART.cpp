@@ -146,7 +146,7 @@ uint8_t DaikinUART::X50Checksum(uint8_t *bytes, uint8_t len)
 
 
 bool DaikinUART::isS21SetCmd(uint8_t cmd1, uint8_t cmd2){
-  for (int i = 0; i < sizeof(S21setCmds)/ sizeof(String); i++){
+  for (int i = 0; i < sizeof(S21setCmds)/ sizeof(S21setCmds[0]); i++){
     if (S21setCmds[i][0] == cmd1 && S21setCmds[i][1] == cmd2){
       return true;
     }
@@ -263,7 +263,9 @@ bool DaikinUART::sendCommandS21(uint8_t cmd1, uint8_t cmd2, uint8_t *payload, ui
   }
 
   Log.ln(TAG,String("S21 << " + getHEXformatted(buf_in, size_in)));
-  bool responseOK = (checkResponseS21(cmd1, cmd2, buf_in, size_in) == S21_OK);
+  int result = checkResponseS21(cmd1, cmd2, buf_in, size_in);
+  lastNAK = (result == S21_NAK);
+  bool responseOK = (result == S21_OK);
   // LOGD_f(TAG,"Response %s\n", responseOK ? "YES" : "NO");
 
   if (responseOK){
@@ -347,7 +349,7 @@ int DaikinUART::checkResponseS21(uint8_t cmd1, uint8_t cmd2, uint8_t *buf, uint8
     if (buf[idx] == NAK)
     {
       // Got an explicit NAK
-      Log.ln(TAG,"checkResponseS21: Got explicted NAK");
+      Log.ln(TAG,"checkResponseS21: Got explicit NAK");
       connected = true;   //HVAC is connected but does not understand the command
       return S21_NAK;
     }
