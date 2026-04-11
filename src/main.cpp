@@ -1843,12 +1843,24 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     modeUpper.toUpperCase();
     if (modeUpper == "OFF")
     {
+      // Optimistically reflect the new state to MQTT immediately
+      HVACSettings s = ac.getSettings();
+      s.power = "OFF";
+      rootInfo["mode"] = hpGetMode(s);
+      rootInfo["action"] = hpGetAction(ac.getStatus(), s);
+      hpSendLocalState();
       ac.setPowerSetting("OFF");
       playBeep(OFF);
       ac.update();
     }
     else if (modeUpper == "ON")
     {
+      // Optimistically reflect the new state to MQTT immediately
+      HVACSettings s = ac.getSettings();
+      s.power = "ON";
+      rootInfo["mode"] = hpGetMode(s);
+      rootInfo["action"] = hpGetAction(ac.getStatus(), s);
+      hpSendLocalState();
       ac.setPowerSetting("ON");
       playBeep(ON);
       ac.update();
@@ -2081,12 +2093,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     modeUpper.toUpperCase();
     if (modeUpper == "OFF")
     {
+      rootInfo["powerful"] = "OFF";
+      hpSendLocalState();
       ac.setPowerfulSetting("OFF");
       playBeep(SET);
       ac.update();
     }
     else if (modeUpper == "ON")
     {
+      rootInfo["powerful"] = "ON";
+      hpSendLocalState();
       ac.setPowerfulSetting("ON");
       playBeep(SET);
       ac.update();
