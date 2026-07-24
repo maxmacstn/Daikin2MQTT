@@ -68,7 +68,9 @@ struct HVACSettings
   const char *fan;
   const char *verticalVane;   // vertical vane, up/down
   const char *horizontalVane; // horizontal vane, left/right
-  const char *powerful; 
+  const char *powerful;  // Powerful mode
+  const char *econo;   // Eco mode
+  const char *quiet;   // Quiet mode (G6/D6 byte0 bit 0x80)
   bool remoteEnable;
   // bool connected;
 };
@@ -125,6 +127,10 @@ public:
   void setHorizontalVaneSetting(const char *setting);
   const char *getPowerfulSetting();
   void setPowerfulSetting(const char *setting);
+  const char *getEcoSetting();
+  void setEcoSetting(const char *setting);
+  const char *getQuietSetting();
+  void setQuietSetting(const char *setting);
   void setEnableRemote(bool enable);
   String getModelName();
 
@@ -158,14 +164,21 @@ private:
   HardwareSerial *_serial{nullptr};
 
   HVACStatus currentStatus{0, 0, 0, 0, 0, 0};
-  HVACSettings currentSettings{"OFF", "COOL", 25.0, "AUTO", "HOLD", "HOLD", "OFF",true};
-  HVACSettings newSettings{"OFF", "COOL", 25.0, "AUTO", "HOLD", "HOLD","OFF", true}; // Mock data
+  HVACSettings currentSettings{"OFF", "COOL", 25.0, "AUTO", "HOLD", "HOLD", "OFF", "OFF", "OFF", true};
+  HVACSettings newSettings{"OFF", "COOL", 25.0, "AUTO", "HOLD", "HOLD", "OFF", "OFF", "OFF", true}; // Mock data
 
   // Temporary setting value.
   PendingSettings pendingSettings = {false, false, false};
 
   unsigned long lastSyncMs = 0;
   bool use_RG_fan = false;
+
+  // Powerful mode command autodetection (mirrors Faikin):
+  // Prefer F6/D6. Some units (e.g. FTKQ/FTKC) NAK F6/D6 and instead expose
+  // "powerful" via F3/G3 (flag in payload[3]) and accept it via D3. We poll F6
+  // first and only fall back to F3/D3 once F6 has proven unsupported.
+  uint8_t s21F6NakCount = 0;
+  bool s21F6Bad = false;
 
   SETTINGS_CHANGED_CALLBACK_SIGNATURE{nullptr};
   STATUS_CHANGED_CALLBACK_SIGNATURE{nullptr};

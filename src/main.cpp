@@ -1161,6 +1161,9 @@ void handleControl()
   controlPage.replace("_TXT_CTRL_FAN_", FPSTR(txt_ctrl_fan));
   controlPage.replace("_TXT_CTRL_VANE_", FPSTR(txt_ctrl_vane));
   controlPage.replace("_TXT_CTRL_WVANE_", FPSTR(txt_ctrl_wvane));
+  controlPage.replace("_TXT_CTRL_POWERFUL_", FPSTR(txt_ctrl_powerful));
+  controlPage.replace("_TXT_CTRL_ECO_", FPSTR(txt_ctrl_eco));
+  controlPage.replace("_TXT_CTRL_QUIET_", FPSTR(txt_ctrl_quiet));
   controlPage.replace("_TXT_F_ON_", FPSTR(txt_f_on));
   controlPage.replace("_TXT_F_OFF_", FPSTR(txt_f_off));
   controlPage.replace("_TXT_F_AUTO_", FPSTR(txt_f_auto));
@@ -1251,6 +1254,33 @@ void handleControl()
   else if (strcmp(settings.horizontalVane, "SWING") == 0)
   {
     controlPage.replace("_WVANE_S_", "selected");
+  }
+
+  if (strcmp(settings.powerful, "ON") == 0)
+  {
+    controlPage.replace("_POWERFUL_ON_", "selected");
+  }
+  else
+  {
+    controlPage.replace("_POWERFUL_OFF_", "selected");
+  }
+
+  if (strcmp(settings.econo, "ON") == 0)
+  {
+    controlPage.replace("_ECO_ON_", "selected");
+  }
+  else
+  {
+    controlPage.replace("_ECO_OFF_", "selected");
+  }
+
+  if (strcmp(settings.quiet, "ON") == 0)
+  {
+    controlPage.replace("_QUIET_ON_", "selected");
+  }
+  else
+  {
+    controlPage.replace("_QUIET_OFF_", "selected");
   }
 
   controlPage.replace("_TEMP_", String(convertCelsiusToLocalUnit(ac.getTemperature(), useFahrenheit)));
@@ -1620,6 +1650,24 @@ HVACSettings change_states(HVACSettings settings)
       settings.horizontalVane = strdup(server.arg("WIDEVANE").c_str());
       update = true;
     }
+    if (server.hasArg("POWERFUL"))
+    {
+      settings.powerful = strdup(server.arg("POWERFUL").c_str());
+      ac.setPowerfulSetting(settings.powerful);
+      update = true;
+    }
+    if (server.hasArg("ECO"))
+    {
+      settings.econo = strdup(server.arg("ECO").c_str());
+      ac.setEcoSetting(settings.econo);
+      update = true;
+    }
+    if (server.hasArg("QUIET"))
+    {
+      settings.quiet = strdup(server.arg("QUIET").c_str());
+      ac.setQuietSetting(settings.quiet);
+      update = true;
+    }
     if (update)
     {
       // Serial.printf("Set new basic %s %s %.2f %s %s %s \n", settings.power, settings.mode, settings.temperature, settings.fan, settings.verticalVane, settings.horizontalVane);
@@ -1645,6 +1693,8 @@ void readHeatPumpSettings()
   rootInfo["wideVane"] = currentSettings.horizontalVane;
   rootInfo["mode"] = hpGetMode(currentSettings);
   rootInfo["powerful"] = currentSettings.powerful;
+  rootInfo["econo"] = currentSettings.econo;
+  rootInfo["quiet"] = currentSettings.quiet;
 }
 
 void hpSettingsChanged()
@@ -1742,6 +1792,8 @@ void hpStatusChanged(HVACStatus currentStatus)
     rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
     rootInfo["errorCode"] = currentStatus.errorCode;
     rootInfo["powerful"] = currentSettings.powerful;
+    rootInfo["econo"] = currentSettings.econo;
+    rootInfo["quiet"] = currentSettings.quiet;
 
     if (ac.daikinUART->currentProtocol() == PROTOCOL_S21 && currentStatus.energyMeter != 0.0){
       // rootInfo["energyMeter"] = currentStatus.energyMeter;
@@ -2088,6 +2140,40 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     else if (modeUpper == "ON")
     {
       ac.setPowerfulSetting("ON");
+      playBeep(SET);
+      ac.update();
+    }
+  }
+  else if (strcmp(topic, ha_switch_eco_set_topic.c_str()) == 0)
+  {
+    String modeUpper = message;
+    modeUpper.toUpperCase();
+    if (modeUpper == "OFF")
+    {
+      ac.setEcoSetting("OFF");
+      playBeep(SET);
+      ac.update();
+    }
+    else if (modeUpper == "ON")
+    {
+      ac.setEcoSetting("ON");
+      playBeep(SET);
+      ac.update();
+    }
+  }
+  else if (strcmp(topic, ha_switch_quiet_set_topic.c_str()) == 0)
+  {
+    String modeUpper = message;
+    modeUpper.toUpperCase();
+    if (modeUpper == "OFF")
+    {
+      ac.setQuietSetting("OFF");
+      playBeep(SET);
+      ac.update();
+    }
+    else if (modeUpper == "ON")
+    {
+      ac.setQuietSetting("ON");
       playBeep(SET);
       ac.update();
     }
@@ -2439,6 +2525,44 @@ void haConfig()
     mqtt_client.endPublish();
   }
 
+  // Eco Mode Switch Config
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
+    const size_t capacityEcoSwitchConfig = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
+    DynamicJsonDocument haEcoSwitchConfig(capacityEcoSwitchConfig);
+    haEcoSwitchConfig["name"] = "Econo Mode";
+    haEcoSwitchConfig["unique_id"] = getId() + "_eco";
+    haEcoSwitchConfig["icon"] = HA_eco;
+    haEcoSwitchConfig["command_topic"] = ha_switch_eco_set_topic;
+    haEcoSwitchConfig["state_topic"] = ha_state_topic;
+    haEcoSwitchConfig["value_template"] = F("{{ value_json.econo if (value_json is defined and value_json.econo is defined and value_json.econo|length) else 'OFF' }}");
+
+    addMQTTDeviceInfo(&haEcoSwitchConfig);
+    mqttOutput.clear();
+    serializeJson(haEcoSwitchConfig, mqttOutput);
+    mqtt_client.beginPublish(ha_switch_eco_config_topic.c_str(), mqttOutput.length(), true);
+    mqtt_client.print(mqttOutput);
+    mqtt_client.endPublish();
+  }
+
+  // Quiet Mode Switch Config
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
+    const size_t capacityQuietSwitchConfig = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
+    DynamicJsonDocument haQuietSwitchConfig(capacityQuietSwitchConfig);
+    haQuietSwitchConfig["name"] = "Quiet Mode";
+    haQuietSwitchConfig["unique_id"] = getId() + "_quiet";
+    haQuietSwitchConfig["icon"] = HA_quiet;
+    haQuietSwitchConfig["command_topic"] = ha_switch_quiet_set_topic;
+    haQuietSwitchConfig["state_topic"] = ha_state_topic;
+    haQuietSwitchConfig["value_template"] = F("{{ value_json.quiet if (value_json is defined and value_json.quiet is defined and value_json.quiet|length) else 'OFF' }}");
+
+    addMQTTDeviceInfo(&haQuietSwitchConfig);
+    mqttOutput.clear();
+    serializeJson(haQuietSwitchConfig, mqttOutput);
+    mqtt_client.beginPublish(ha_switch_quiet_config_topic.c_str(), mqttOutput.length(), true);
+    mqtt_client.print(mqttOutput);
+    mqtt_client.endPublish();
+  }
+
   // Disable / Enable remote switch (ON, OFF button since we can't find the way to check current state)
   if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
     const size_t capacityRemoteEnableSwitchConfig = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(8) + 2048;
@@ -2506,6 +2630,8 @@ void mqttConnect()
       mqtt_client.subscribe(ha_switch_unit_led_set_topic.c_str());
       mqtt_client.subscribe(ha_switch_unit_beep_set_topic.c_str());
       mqtt_client.subscribe(ha_switch_powerful_set_topic.c_str());
+      mqtt_client.subscribe(ha_switch_eco_set_topic.c_str());
+      mqtt_client.subscribe(ha_switch_quiet_set_topic.c_str());
       mqtt_client.subscribe(ha_switch_remote_enable_set_topic.c_str());
       mqtt_client.publish(ha_availability_topic.c_str(), !_debugMode ? mqtt_payload_available : mqtt_payload_unavailable, true); // publish status as available
       if (others_haa)
@@ -2909,6 +3035,8 @@ void setup()
       ha_switch_unit_led_set_topic = mqtt_topic + "/" + mqtt_fn + "/led/set";
       ha_switch_unit_beep_set_topic = mqtt_topic + "/" + mqtt_fn + "/beep/set";
       ha_switch_powerful_set_topic = mqtt_topic + "/" + mqtt_fn + "/powerful/set";
+      ha_switch_eco_set_topic = mqtt_topic + "/" + mqtt_fn + "/econo/set";
+      ha_switch_quiet_set_topic = mqtt_topic + "/" + mqtt_fn + "/quiet/set";
       ha_switch_remote_enable_set_topic =  mqtt_topic + "/" + mqtt_fn + "/remote_enable/set";
 
       if (others_haa)
@@ -2926,6 +3054,8 @@ void setup()
         ha_switch_unit_led_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/led/config";
         ha_switch_unit_beep_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/beep/config";
         ha_switch_powerful_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/powerful/config";
+        ha_switch_eco_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/eco/config";
+        ha_switch_quiet_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/quiet/config";
         ha_switch_remote_enable_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/remote_enable/config";
       }
       // startup mqtt connection
@@ -2956,6 +3086,8 @@ void setup()
     rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
     rootInfo["errorCode"] = currentStatus.errorCode;
     rootInfo["powerful"] = currentSettings.powerful;
+    rootInfo["econo"] = currentSettings.econo;
+    rootInfo["quiet"] = currentSettings.quiet;
     lastTempSend = millis();
   }
   else

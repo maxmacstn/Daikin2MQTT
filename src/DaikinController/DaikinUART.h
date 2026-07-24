@@ -76,6 +76,7 @@ const String S21queryCmds[] = {
   "F4", 
   "F5", //Error code
   "F6", //Powerful Mode (2), comfort, quiet, streamer, etc.
+  "F7", //Demand & Eco mode
   // "F9",
   "RH", 
   "RI", 

@@ -109,6 +109,9 @@ const char txt_ctrl_mode[] PROGMEM = "Mode";
 const char txt_ctrl_fan[] PROGMEM = "Fan";
 const char txt_ctrl_vane[] PROGMEM = "Vertical Vane";
 const char txt_ctrl_wvane[] PROGMEM = "Horizontal Vane";
+const char txt_ctrl_powerful[] PROGMEM = "Powerful";
+const char txt_ctrl_eco[] PROGMEM = "Econo";
+const char txt_ctrl_quiet[] PROGMEM = "Quiet";
 const char txt_ctrl_ctemp[] PROGMEM = "Current temperature";
 
 //Page Unit
