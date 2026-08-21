@@ -1030,11 +1030,11 @@ bool DaikinController::update(bool updateAll)
     }
     
     // Special modes — three commands packed in this block:
-    //   D6 byte 0: powerful (bit 1) + comfort (bit 6) + quiet (bit 7)
+    //   D6 byte 0: powerful (bit 1) + comfort (bit 6) + quiet (bit 7) — v2 units
     //   D6 byte 1: streamer (bit 7)
+    //   D3 byte 4: powerful (bit 2) + quiet (bit 1) + comfort (bit 0) — always sent
+    //              as an attempt to reach FTKQ, which NAKs D6. NOT WORKING, see below.
     //   D7 byte 1: econo (bit 1)
-    // If F6/F7 was NAK'd (v0-style unit), fall back to D3 for powerful only.
-    // See: https://github.com/revk/ESP32-Faikout/issues/817
     if (pendingSettings.specialMode || updateAll)
     {
       bool sent = false;
@@ -1054,13 +1054,35 @@ bool DaikinController::update(bool updateAll)
         sent = daikinUART->sendCommandS21('D', '6', payload, 4);
         if (!sent) Log.ln(TAG, "D6 failed, will try D3 fallback");
       }
-      if (!sent) { // F6 NAK'd → D3 fallback (powerful only; comfort/quiet/streamer unsupported)
-        payload[0] = '0';
-        payload[1] = '0';
-        payload[2] = '0';
-        payload[3] = '0' + S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
-        sent = daikinUART->sendCommandS21('D', '3', payload, 4);
-        if (!sent) Log.ln(TAG, "D3 fallback also failed — powerful mode not supported");
+      // Always send D3, carrying the special modes in byte 4. Preserves current timer state.
+      //
+      // KNOWN NOT WORKING on FTKQ-UV2S. Live capture (powerful ON, 2026-08-21):
+      //     D6 >> 02:44:36:32:30:30:34:40:03   << 15   (explicit NAK — FTKQ rejects D6)
+      //     D3 >> 02:44:33:30:FE:FE:30:34:07:03 << 06  (ACK, byte4=0x34 → bit2 powerful)
+      // The unit ACKs the 5-byte D3 but ignores byte 4: F6 still reads 30:30:30:30 and
+      // the status block still reports "Powerful Cool: OFF". F3 echoes only 4 bytes, so
+      // byte 4 is not read back either — the unit likely never stored it.
+      //
+      // Note docs/S21_PROTOCOL_REFERENCE.md documents powerful on D3 as byte 3 bit 1
+      // (verified), not byte 4. The byte-4 layout here is an unconfirmed hypothesis and
+      // the capture above is evidence against it. Reaching special modes on FTKQ is
+      // still an open problem; do not treat this path as functional.
+      {
+        int onMin  = currentStatus.onTimerMinutes;
+        int offMin = currentStatus.offTimerMinutes;
+        uint8_t enable = (onMin > 0 ? 1 : 0) | (offMin > 0 ? 2 : 0);
+        payload[0] = '0' + enable;
+        payload[1] = (onMin  > 0) ? (uint8_t)(0x30 + onMin  / 10) : 0xFE;
+        payload[2] = (offMin > 0) ? (uint8_t)(0x30 + offMin / 10) : 0xFE;
+        payload[3] = '0';
+        uint8_t sp = 0;
+        if (newSettings.powerful == S21_POWERFUL_MAP[1]) sp |= 0x04;
+        if (newSettings.quiet    == S21_QUIET_MAP[1])    sp |= 0x02;
+        if (newSettings.comfort  == S21_COMFORT_MAP[1])  sp |= 0x01;
+        payload[4] = '0' + sp;
+        bool d3ok = daikinUART->sendCommandS21('D', '3', payload, 5);
+        if (!sent && !d3ok) Log.ln(TAG, "D3 also failed — special modes not supported");
+        sent = sent || d3ok;
       }
 
       // D7: byte 0 = demand control (power limit), byte 1 = econo. Both share this
@@ -1108,9 +1130,10 @@ bool DaikinController::update(bool updateAll)
     }
 
     // D3 — ON/OFF timer. byte0 enable ('0'..'3'), byte1 on-timer, byte2 off-timer
-    // (both 0x30 + 10-min periods, 0xFE = disabled), byte3 preserves powerful for
-    // v0 units where D3 byte3 is the powerful fallback (ignored on v2). Validated
-    // on FTKD-zv2s: D3 31 3C FE 30 → F3 31:3C:FE:00, RD 120min.
+    // (both 0x30 + 10-min periods, 0xFE = disabled), byte4 = special modes
+    // (bit2=powerful, bit1=quiet, bit0=comfort). Timer bytes are ACK'd and verified;
+    // byte 4 is the unconfirmed special-modes attempt — see the D3 block above, it has
+    // no observed effect on FTKQ-UV2S.
     if (pendingSettings.timer)
     {
       int onMin  = (_desiredOnTimer  >= 0) ? _desiredOnTimer  : currentStatus.onTimerMinutes;
@@ -1119,8 +1142,13 @@ bool DaikinController::update(bool updateAll)
       payload[0] = '0' + enable;
       payload[1] = (onMin  > 0) ? (uint8_t)(0x30 + onMin  / 10) : 0xFE;
       payload[2] = (offMin > 0) ? (uint8_t)(0x30 + offMin / 10) : 0xFE;
-      payload[3] = '0' + S21_POWERFUL[lookupByteMapIndex(S21_POWERFUL_MAP, 2, newSettings.powerful)];
-      bool d3ok = daikinUART->sendCommandS21('D', '3', payload, 4);
+      payload[3] = '0';
+      uint8_t sp = 0;
+      if (newSettings.powerful == S21_POWERFUL_MAP[1]) sp |= 0x04;
+      if (newSettings.quiet    == S21_QUIET_MAP[1])    sp |= 0x02;
+      if (newSettings.comfort  == S21_COMFORT_MAP[1])  sp |= 0x01;
+      payload[4] = '0' + sp;
+      bool d3ok = daikinUART->sendCommandS21('D', '3', payload, 5);
       if (d3ok) {
         currentStatus.onTimerMinutes  = onMin;
         currentStatus.offTimerMinutes = offMin;

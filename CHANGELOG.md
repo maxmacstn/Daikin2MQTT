@@ -8,6 +8,43 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Known issues
+- **Special modes (Powerful / Quiet / Comfort) do not work on FTKQ-UV2S.** The unit rejects `D6`
+  outright with an explicit NAK, so the write never reaches the special-modes register. `D3` is
+  now always sent alongside `D6` carrying the modes in byte 4 (bit2 powerful, bit1 quiet,
+  bit0 comfort) as an attempt to reach the unit another way — but this does **not** work either:
+  the AC ACKs the 5-byte `D3` and then ignores byte 4. Live capture on FTKQ-UV2S with Powerful
+  ON (2026-08-21):
+
+  ```
+  D6 >> 02:44:36:32:30:30:34:40:03      << 15  (NAK)
+  D3 >> 02:44:33:30:FE:FE:30:34:07:03   << 06  (ACK, byte4=0x34 → powerful bit set)
+  ```
+
+  After the write, `F6` still reads `30:30:30:30` and the status block still reports
+  `Powerful Cool: OFF`. `F3` echoes only 4 bytes, so byte 4 is never read back. Note that
+  `docs/S21_PROTOCOL_REFERENCE.md` documents powerful on `D3` as **byte 3 bit 1** (verified),
+  not byte 4 — the byte-4 layout is an unconfirmed hypothesis and this capture is evidence
+  against it. Finding the real mechanism on FTKQ is still open.
+
+- The always-send-`D3` path rewrites the ON/OFF timer registers from `currentStatus` on every
+  special-mode change. Harmless when no timer is set, but a stale `currentStatus` could clobber
+  a live timer.
+
+### Changed
+- `D3` now sends a 5-byte payload (was 4). Byte 3 is pinned to `'0'`, which drops the previously
+  documented v0 powerful fallback on `D3` byte 3 bit 1.
+
+### Build
+- Pinned `ArduinoJson@^7.0.0` (was unpinned).
+- Added `build_src_filter` + `src/native_stub.cpp` so the `native` test env stops compiling the
+  ESP32 sources.
+
+### Notes
+- Added `captures/` with the FTKC and FTKQ module boot traces backing the above.
+- `config.h` still reports `1.4-b6`; builds from this branch are **not** the shipped b6 binary
+  and cannot be told apart from their version string. Bump before releasing.
+
 ## [1.4-b6] - 2026-05-20
 
 Cross-model fidelity, from Max's FTKQ12UV2S testing + the three-unit boot logs.
