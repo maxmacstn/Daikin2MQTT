@@ -19,6 +19,20 @@
 #include "html_menu.h"         // code html for menu
 #include "html_pages.h"        // code html for pages
 #include <esp_task_wdt.h>      // Watchdog
+#include <esp_mac.h>
+
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+#define BUZZER_CH BUZZER // Arduino 3.x LEDC API is pin based
+static void wdtInit(uint32_t timeoutS, bool panic)
+{
+  esp_task_wdt_config_t cfg = {.timeout_ms = timeoutS * 1000, .idle_core_mask = 0, .trigger_panic = panic};
+  if (esp_task_wdt_reconfigure(&cfg) == ESP_ERR_INVALID_STATE)
+    esp_task_wdt_init(&cfg);
+}
+#else
+#define BUZZER_CH 0
+static void wdtInit(uint32_t timeoutS, bool panic) { esp_task_wdt_init(timeoutS, panic); }
+#endif
 #include "logger.h"
 #include <ESP_MultiResetDetector.h> //https://github.com/khoih-prog/ESP_MultiResetDetector
 
@@ -305,25 +319,25 @@ void playBeep(Buzzer_preset buzzer_p)
   switch (buzzer_p)
   {
   case ON:
-    ledcWriteTone(0, BUZZER_FREQ);
+    ledcWriteTone(BUZZER_CH, BUZZER_FREQ);
     delay(100);
-    ledcWriteTone(0, 0);
+    ledcWriteTone(BUZZER_CH, 0);
     delay(100);
-    ledcWriteTone(0, BUZZER_FREQ);
+    ledcWriteTone(BUZZER_CH, BUZZER_FREQ);
     delay(100);
-    ledcWriteTone(0, 0);
+    ledcWriteTone(BUZZER_CH, 0);
     break;
 
   case OFF:
-    ledcWriteTone(0, BUZZER_FREQ);
+    ledcWriteTone(BUZZER_CH, BUZZER_FREQ);
     delay(400);
-    ledcWriteTone(0, 0);
+    ledcWriteTone(BUZZER_CH, 0);
     break;
 
   case SET:
-    ledcWriteTone(0, BUZZER_FREQ);
+    ledcWriteTone(BUZZER_CH, BUZZER_FREQ);
     delay(100);
-    ledcWriteTone(0, 0);
+    ledcWriteTone(BUZZER_CH, 0);
   default:
     break;
   }
@@ -458,6 +472,7 @@ void initMqtt()
 {
   mqtt_client.setServer(mqtt_server.c_str(), atoi(mqtt_port.c_str()));
   mqtt_client.setCallback(mqttCallback);
+  mqtt_client.setBufferSize(1024);
   mqtt_client.setKeepAlive(120);
   mqtt_client.setBufferSize(1024);
   mqttConnect();
@@ -1718,8 +1733,10 @@ String hpGetAction(HVACStatus hpStatus, HVACSettings hpSettings)
 
 void hpStatusChanged(HVACStatus currentStatus)
 {
-  if ((millis() > (lastTempSend + update_int)) && (millis() > (lastCommandSend + POLL_DELAY_AFTER_SET_MS)))
-  { // only send the temperature every update_int interval and not just sent command to A/C.
+  bool confirmed = (millis() > (lastCommandSend + MIN_DELAY_AFTER_SET_MS)) && ac.commandConfirmed();
+  if (confirmed || ((millis() > (lastTempSend + update_int)) && (millis() > (lastCommandSend + POLL_DELAY_AFTER_SET_MS))))
+  { // only send the temperature every update_int interval and not just sent command to A/C,
+    // except right after the unit confirms a command.
 
     // send room temp, operating info and all information
     HVACSettings currentSettings = ac.getSettings();
@@ -1742,6 +1759,34 @@ void hpStatusChanged(HVACStatus currentStatus)
     rootInfo["compressorFrequency"] = currentStatus.compressorFrequency;
     rootInfo["errorCode"] = currentStatus.errorCode;
     rootInfo["powerful"] = currentSettings.powerful;
+
+    if (ac.daikinUART->currentProtocol() == PROTOCOL_X50){
+      rootInfo["filterSign"] = currentStatus.filterSign ? "ON" : "OFF";
+      rootInfo["filterHours"] = currentStatus.filterHours;
+      rootInfo["filterHoursLeft"] = currentStatus.filterHoursLeft;
+      rootInfo["outdoorTemp2"] = convertCelsiusToLocalUnit(currentStatus.outdoorTemp2, useFahrenheit);
+      rootInfo["outdoorTemp3"] = convertCelsiusToLocalUnit(currentStatus.outdoorTemp3, useFahrenheit);
+      rootInfo["outdoorTemp4"] = convertCelsiusToLocalUnit(currentStatus.outdoorTemp4, useFahrenheit);
+      rootInfo["poweredHours"] = currentStatus.poweredHours;
+      rootInfo["runningHours"] = currentStatus.runningHours;
+      rootInfo["compressorHours"] = currentStatus.compressorHours;
+      rootInfo["outdoorFanHours"] = currentStatus.outdoorFanHours;
+      rootInfo["pipeTemp2"] = convertCelsiusToLocalUnit(currentStatus.pipeTemp2, useFahrenheit);
+      rootInfo["compressorLoad"] = currentStatus.compressorLoad;
+      rootInfo["humidity"] = currentStatus.humidity;
+      rootInfo["drainPump"] = currentStatus.drainPump ? "ON" : "OFF";
+      rootInfo["compressorStage"] = currentStatus.compressorStage;
+      rootInfo["compressorStop"] = currentStatus.compressorStop;
+      rootInfo["pipeTempDiff"] = currentStatus.pipeTempDiff;
+      if (!currentStatus.outdoorModelName.isEmpty())
+        rootInfo["outdoorModel"] = currentStatus.outdoorModelName;
+    }
+
+    if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
+      if (currentStatus.humidity > 0)
+        rootInfo["humidity"] = currentStatus.humidity;
+      rootInfo["demand"] = currentStatus.demand;
+    }
 
     if (ac.daikinUART->currentProtocol() == PROTOCOL_S21 && currentStatus.energyMeter != 0.0){
       // rootInfo["energyMeter"] = currentStatus.energyMeter;
@@ -1843,12 +1888,19 @@ void mqttCallback(char *topic, byte *payload, unsigned int length)
     modeUpper.toUpperCase();
     if (modeUpper == "OFF")
     {
+      rootInfo["mode"] = "off";
+      rootInfo["action"] = "off";
+      hpSendLocalState();
       ac.setPowerSetting("OFF");
       playBeep(OFF);
       ac.update();
     }
     else if (modeUpper == "ON")
     {
+      HVACSettings onSettings = ac.getSettings();
+      onSettings.power = "ON";
+      rootInfo["mode"] = hpGetMode(onSettings);
+      hpSendLocalState();
       ac.setPowerSetting("ON");
       playBeep(ON);
       ac.update();
@@ -2318,8 +2370,85 @@ void haConfig()
   publishMQTTSensorConfig("Compressor Frequency", "_comp_freq", HA_sine_wave_icon, "Hz", NULL, ha_state_topic, comp_freq_tpl_str, ha_sensor_comp_freq_config_topic);
   publishMQTTSensorConfig("Error Code", "_error_code", HA_alert, NULL, NULL, ha_state_topic, error_code_tpl_str, ha_sensor_error_code_config_topic, "diagnostic");
 
+  if (ac.daikinUART->currentProtocol() == PROTOCOL_X50){
+    String filter_hours_tpl_str = F("{{ value_json.filterHours if (value_json is defined and value_json.filterHours is defined ) else '' }}");
+    String filter_hours_left_tpl_str = F("{{ value_json.filterHoursLeft if (value_json is defined and value_json.filterHoursLeft is defined ) else '' }}");
+    String outdoor_temp2_tpl_str = F("{{ value_json.outdoorTemp2 if (value_json is defined and value_json.outdoorTemp2 is defined ) else '' }}");
+    String outdoor_temp3_tpl_str = F("{{ value_json.outdoorTemp3 if (value_json is defined and value_json.outdoorTemp3 is defined ) else '' }}");
+    String outdoor_temp4_tpl_str = F("{{ value_json.outdoorTemp4 if (value_json is defined and value_json.outdoorTemp4 is defined ) else '' }}");
+    publishMQTTSensorConfig("Filter hours", "_filter_hours", HA_air_filter, "h", "duration", ha_state_topic, filter_hours_tpl_str, ha_sensor_filter_hours_config_topic);
+    publishMQTTSensorConfig("Filter hours remaining", "_filter_hours_left", HA_air_filter, "h", "duration", ha_state_topic, filter_hours_left_tpl_str, ha_sensor_filter_hours_left_config_topic);
+    publishMQTTSensorConfig("Outdoor temperature 2", "_outdoor_temp2", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "Temperature", ha_state_topic, outdoor_temp2_tpl_str, ha_sensor_outdoor_temp2_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Outdoor temperature 3", "_outdoor_temp3", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "Temperature", ha_state_topic, outdoor_temp3_tpl_str, ha_sensor_outdoor_temp3_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Outdoor temperature 4", "_outdoor_temp4", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "Temperature", ha_state_topic, outdoor_temp4_tpl_str, ha_sensor_outdoor_temp4_config_topic, "diagnostic");
+    String powered_hours_tpl_str = F("{{ value_json.poweredHours if (value_json is defined and value_json.poweredHours is defined ) else '' }}");
+    String running_hours_tpl_str = F("{{ value_json.runningHours if (value_json is defined and value_json.runningHours is defined ) else '' }}");
+    String compressor_hours_tpl_str = F("{{ value_json.compressorHours if (value_json is defined and value_json.compressorHours is defined ) else '' }}");
+    String outdoor_fan_hours_tpl_str = F("{{ value_json.outdoorFanHours if (value_json is defined and value_json.outdoorFanHours is defined ) else '' }}");
+    String pipe_temp2_tpl_str = F("{{ value_json.pipeTemp2 if (value_json is defined and value_json.pipeTemp2 is defined ) else '' }}");
+    String compressor_load_tpl_str = F("{{ value_json.compressorLoad if (value_json is defined and value_json.compressorLoad is defined ) else '' }}");
+    publishMQTTSensorConfig("Powered hours", "_powered_hours", HA_counter, "h", "duration", ha_state_topic, powered_hours_tpl_str, ha_sensor_powered_hours_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Running hours", "_running_hours", HA_counter, "h", "duration", ha_state_topic, running_hours_tpl_str, ha_sensor_running_hours_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Compressor hours", "_compressor_hours", HA_counter, "h", "duration", ha_state_topic, compressor_hours_tpl_str, ha_sensor_compressor_hours_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Outdoor fan hours", "_outdoor_fan_hours", HA_counter, "h", "duration", ha_state_topic, outdoor_fan_hours_tpl_str, ha_sensor_outdoor_fan_hours_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Pipe temperature 2", "_pipe_temp2", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", "Temperature", ha_state_topic, pipe_temp2_tpl_str, ha_sensor_pipe_temp2_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Compressor load", "_compressor_load", HA_sine_wave_icon, NULL, NULL, ha_state_topic, compressor_load_tpl_str, ha_sensor_compressor_load_config_topic, "diagnostic");
+    String humidity_tpl_str = F("{{ value_json.humidity if (value_json is defined and value_json.humidity is defined ) else '' }}");
+    String stage_tpl_str = F("{{ {0:'idle',1:'stopping',2:'start request',4:'starting',5:'steady',6:'ramping'}.get(value_json.compressorStage, value_json.compressorStage) if (value_json is defined and value_json.compressorStage is defined ) else '' }}");
+    String stop_tpl_str = F("{{ {0:'idle',1:'running',2:'thermo off',6:'switched off'}.get(value_json.compressorStop, value_json.compressorStop) if (value_json is defined and value_json.compressorStop is defined ) else '' }}");
+    String pipe_diff_tpl_str = F("{{ value_json.pipeTempDiff if (value_json is defined and value_json.pipeTempDiff is defined ) else '' }}");
+    publishMQTTSensorConfig("Humidity", "_humidity", "mdi:water-percent", "%", "humidity", ha_state_topic, humidity_tpl_str, ha_sensor_humidity_config_topic);
+    publishMQTTSensorConfig("Compressor stage", "_compressor_stage", HA_sine_wave_icon, NULL, NULL, ha_state_topic, stage_tpl_str, ha_sensor_compressor_stage_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Compressor state", "_compressor_stop", HA_sine_wave_icon, NULL, NULL, ha_state_topic, stop_tpl_str, ha_sensor_compressor_stop_config_topic, "diagnostic");
+    String outdoor_model_tpl_str = F("{{ value_json.outdoorModel if (value_json is defined and value_json.outdoorModel is defined ) else this.state }}");
+    publishMQTTSensorConfig("Outdoor model", "_outdoor_model", "mdi:hvac", NULL, NULL, ha_state_topic, outdoor_model_tpl_str, ha_sensor_outdoor_model_config_topic, "diagnostic");
+    publishMQTTSensorConfig("Pipe temperature difference", "_pipe_temp_diff", HA_thermometer_icon, useFahrenheit ? "°F" : "°C", NULL, ha_state_topic, pipe_diff_tpl_str, ha_sensor_pipe_temp_diff_config_topic, "diagnostic");
+
+    // Filter sign binary sensor
+    const size_t filterSignConfigSize = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(13) + 2048;
+    DynamicJsonDocument haFilterSignConfig(filterSignConfigSize);
+    haFilterSignConfig["name"] = "Filter sign";
+    haFilterSignConfig["unique_id"] = getId() + "_filter_sign";
+    haFilterSignConfig["icon"] = HA_air_filter;
+    haFilterSignConfig["device_class"] = "problem";
+    haFilterSignConfig["state_topic"] = ha_state_topic;
+    haFilterSignConfig["value_template"] = F("{{ value_json.filterSign if (value_json is defined and value_json.filterSign is defined ) else '' }}");
+    haFilterSignConfig["avty_t"] = ha_availability_topic;
+    haFilterSignConfig["pl_not_avail"] = mqtt_payload_unavailable;
+    haFilterSignConfig["pl_avail"] = mqtt_payload_available;
+    addMQTTDeviceInfo(&haFilterSignConfig);
+    String filterSignOutput;
+    serializeJson(haFilterSignConfig, filterSignOutput);
+    mqtt_client.beginPublish(ha_binary_sensor_filter_sign_config_topic.c_str(), filterSignOutput.length(), true);
+    mqtt_client.print(filterSignOutput);
+    mqtt_client.endPublish();
+
+    // Drain pump binary sensor
+    const size_t drainPumpConfigSize = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(13) + 2048;
+    DynamicJsonDocument haDrainPumpConfig(drainPumpConfigSize);
+    haDrainPumpConfig["name"] = "Drain pump";
+    haDrainPumpConfig["unique_id"] = getId() + "_drain_pump";
+    haDrainPumpConfig["icon"] = "mdi:pump";
+    haDrainPumpConfig["device_class"] = "running";
+    haDrainPumpConfig["state_topic"] = ha_state_topic;
+    haDrainPumpConfig["value_template"] = F("{{ value_json.drainPump if (value_json is defined and value_json.drainPump is defined ) else '' }}");
+    haDrainPumpConfig["avty_t"] = ha_availability_topic;
+    haDrainPumpConfig["pl_not_avail"] = mqtt_payload_unavailable;
+    haDrainPumpConfig["pl_avail"] = mqtt_payload_available;
+    addMQTTDeviceInfo(&haDrainPumpConfig);
+    String drainPumpOutput;
+    serializeJson(haDrainPumpConfig, drainPumpOutput);
+    mqtt_client.beginPublish(ha_binary_sensor_drain_pump_config_topic.c_str(), drainPumpOutput.length(), true);
+    mqtt_client.print(drainPumpOutput);
+    mqtt_client.endPublish();
+  }
+
   if (ac.daikinUART->currentProtocol() == PROTOCOL_S21){
     publishMQTTSensorConfig("Energy Meter", "_energy_meter", HA_counter, "kWh", "energy", ha_state_topic, energy_meter_tpl_str, ha_sensor_energy_meter_config_topic);
+    String humidity_tpl_str = F("{{ value_json.humidity if (value_json is defined and value_json.humidity is defined ) else '' }}");
+    String demand_tpl_str = F("{{ value_json.demand if (value_json is defined and value_json.demand is defined ) else '' }}");
+    publishMQTTSensorConfig("Humidity", "_humidity", "mdi:water-percent", "%", "humidity", ha_state_topic, humidity_tpl_str, ha_sensor_humidity_config_topic);
+    publishMQTTSensorConfig("Demand", "_demand", HA_sine_wave_icon, NULL, NULL, ha_state_topic, demand_tpl_str, ha_sensor_demand_config_topic, "diagnostic");
   }
 
 
@@ -2621,10 +2750,12 @@ String getTemperatureScale()
 
 String getId()
 {
-  String lastMac = WiFi.macAddress();
-  lastMac.remove(0, 9);
-  lastMac.replace(":", "");
-  return lastMac;
+  // Read the STA MAC from efuse: WiFi.macAddress() is all zeros before WiFi starts on Arduino 3.x
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  char lastMac[7];
+  snprintf(lastMac, sizeof(lastMac), "%02X%02X%02X", mac[3], mac[4], mac[5]);
+  return String(lastMac);
 }
 
 // Check if header is present and correct
@@ -2784,8 +2915,12 @@ void setup()
   pinMode(LED_PWR, OUTPUT);
   pinMode(LED_PWR, OUTPUT);
   pinMode(BTN_1, INPUT);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(BUZZER, BUZZER_FREQ, 10);
+#else
   ledcAttachPin(BUZZER, 0);
-  ledcWriteTone(0, 0);
+#endif
+  ledcWriteTone(BUZZER_CH, 0);
 
   digitalWrite(LED_ACT, HIGH);
   digitalWrite(LED_PWR, HIGH);
@@ -2808,10 +2943,11 @@ void setup()
   Log.ln(TAG, "ESP Chip Model:\t" + String(ESP.getChipModel()));
   Log.ln(TAG, "ESP PSRam Size:\t" + String(ESP.getPsramSize() / 1000) + " Kb");
   Log.ln(TAG, "MAC Address:\t" + WiFi.macAddress());
+  Log.ln(TAG, "Reset reason:\t" + String((int)esp_reset_reason()));
 
   if (esp_reset_reason() == ESP_RST_TASK_WDT)
   {
-    esp_task_wdt_init(60, true);
+    wdtInit(60, true);
     safeMode();
   }
 
@@ -2921,6 +3057,25 @@ void setup()
         ha_sensor_comp_freq_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/comp_freq/config";
         ha_sensor_energy_meter_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/energy_meter/config";
         ha_sensor_error_code_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/error_code/config";
+        ha_binary_sensor_filter_sign_config_topic = others_haa_topic + "/binary_sensor/" + mqtt_fn + "/filter_sign/config";
+        ha_sensor_filter_hours_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/filter_hours/config";
+        ha_sensor_filter_hours_left_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/filter_hours_left/config";
+        ha_sensor_outdoor_temp2_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/outdoor_temp2/config";
+        ha_sensor_outdoor_temp3_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/outdoor_temp3/config";
+        ha_sensor_outdoor_temp4_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/outdoor_temp4/config";
+        ha_sensor_humidity_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/humidity/config";
+        ha_sensor_demand_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/demand/config";
+        ha_sensor_powered_hours_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/powered_hours/config";
+        ha_sensor_running_hours_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/running_hours/config";
+        ha_sensor_compressor_hours_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/compressor_hours/config";
+        ha_sensor_outdoor_fan_hours_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/outdoor_fan_hours/config";
+        ha_sensor_pipe_temp2_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/pipe_temp2/config";
+        ha_sensor_compressor_load_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/compressor_load/config";
+        ha_sensor_compressor_stage_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/compressor_stage/config";
+        ha_sensor_outdoor_model_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/outdoor_model/config";
+        ha_sensor_compressor_stop_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/compressor_stop/config";
+        ha_sensor_pipe_temp_diff_config_topic = others_haa_topic + "/sensor/" + mqtt_fn + "/pipe_temp_diff/config";
+        ha_binary_sensor_drain_pump_config_topic = others_haa_topic + "/binary_sensor/" + mqtt_fn + "/drain_pump/config";
         ha_select_vane_vertical_config_topic = others_haa_topic + "/select/" + mqtt_fn + "/vane_vertical/config";
         ha_select_vane_horizontal_config_topic = others_haa_topic + "/select/" + mqtt_fn + "/vane_horizontal/config";
         ha_switch_unit_led_config_topic = others_haa_topic + "/switch/" + mqtt_fn + "/led/config";
@@ -2971,7 +3126,7 @@ void setup()
   digitalWrite(LED_ACT, LOW);
 
   // Enable watchdog
-  esp_task_wdt_init(30, true);
+  wdtInit(30, true);
   esp_task_wdt_add(NULL);
 }
 
@@ -3007,7 +3162,7 @@ void loop()
         Log.ln(TAG, "Reconnect HVAC");
         lastHpSync = millis();
         // If we've retried more than the max number of tries, keep retrying at that fixed interval, which is several minutes.
-        hpConnectionRetries = min(hpConnectionRetries + 1u, HP_MAX_RETRIES);
+        hpConnectionRetries = min<unsigned int>(hpConnectionRetries + 1u, HP_MAX_RETRIES);
         hpConnectionTotalRetries++;
         if (ac.connect(acSerial))
         {

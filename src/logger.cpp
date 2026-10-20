@@ -67,7 +67,9 @@ void Logging:: f(const char* tag, char *format, ...){
 
     va_start(args, format);
     size += sprintf(buff, "[%s:%08d]\t",tag, millis()/1000);
-    size += vsnprintf(&buff[size], 512, format, args);
+    // vsnprintf returns the untruncated length, so clamp it to what fits
+    size += min<int>(vsnprintf(&buff[size], sizeof(buff) - size, format, args), sizeof(buff) - size - 1);
+    va_end(args);
 
     //log to serial (USB CDC)
     for (int i =0 ;  i < size; i++){
@@ -98,7 +100,9 @@ void Logging:: ln(const char* tag, const char *format, ...){
 
     va_start(args, format);
     size += sprintf(buff, "[%s:%08d]\t",tag, millis()/1000);
-    size += vsnprintf(&buff[size], 512, format, args);
+    // vsnprintf returns the untruncated length, so clamp it and keep room for '\n'
+    size += min<int>(vsnprintf(&buff[size], sizeof(buff) - size - 1, format, args), sizeof(buff) - size - 2);
+    va_end(args);
     buff[size] = '\n';
     size++;
 

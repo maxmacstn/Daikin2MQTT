@@ -225,6 +225,13 @@ bool DaikinController::sync()
       // ("Result: %s\n\n", res ? "Success" : "Failed");
       success = success & res;
     }
+
+    // Outdoor model: indoor unit fetches it from the outdoor unit, so keep asking until it arrives
+    if (this->currentStatus.outdoorModelName.isEmpty() && daikinUART->sendCommandX50(0xB0, NULL, 0))
+    {
+      ACResponse response = daikinUART->getResponse();
+      parseResponse(&response);
+    }
   }
 
   if (success && firstSuccess)
@@ -368,6 +375,12 @@ bool DaikinController::parseResponse(ACResponse *response)
       case 'L': // Fan speed
         this->currentStatus.fanRPM = bytes_to_num(&payload[0], payloadSize) * 10;
         return true;
+      case 'e': // Humidity %
+        this->currentStatus.humidity = bytes_to_num(&payload[0], payloadSize);
+        return true;
+      case 'b': // Demand 0-15
+        this->currentStatus.demand = bytes_to_num(&payload[0], payloadSize);
+        return true;
       case 'd': // Compressor state / frequency? Idle if 0.
         this->currentStatus.operating = !(payload[0] == '0' && payload[1] == '0' && payload[2] == '0');
         this->currentStatus.compressorFrequency = (payload[0] - '0') + (payload[1] - '0') * 10 + (payload[2] - '0') * 100;
@@ -403,8 +416,8 @@ bool DaikinController::parseResponse(ACResponse *response)
     uint8_t payload[256];
     memcpy(payload, response->data, payloadSize);   //5th byte
 
-    // HVAC Name
-    if (cmd == 0xBA && payloadSize >= 20)
+    // HVAC Name (BA indoor, B0 outdoor)
+    if ((cmd == 0xBA || cmd == 0xB0) && payloadSize >= 20)
     {
       char model[256];
       uint8_t modelLen = 0;
@@ -420,7 +433,10 @@ bool DaikinController::parseResponse(ACResponse *response)
           break;
         }
       }
-      this->currentStatus.modelName = String(model, modelLen);
+      if (cmd == 0xB0)
+        this->currentStatus.outdoorModelName = String(model, modelLen);
+      else
+        this->currentStatus.modelName = String(model, modelLen);
       return true;
     }
     // Main Status
@@ -447,6 +463,8 @@ bool DaikinController::parseResponse(ACResponse *response)
       }else{
           this->currentStatus.errorCode = "";
       }
+
+      this->currentStatus.filterSign = payload[7] & 0x20;
 
       newSettings = currentSettings;
       return true;
@@ -482,6 +500,13 @@ bool DaikinController::parseResponse(ACResponse *response)
         this->currentSettings.temperature = round(t * 2.0) / 2.0;
         newSettings = currentSettings;
       }
+      // Counter steps once per 2 operating hours (1250 counts = 2500 h filter sign)
+      this->currentStatus.filterHours = (payload[14] + (payload[15] << 8)) * 2;
+      this->currentStatus.filterHoursLeft = (payload[27] + (payload[28] << 8)) * 2;
+      this->currentStatus.runningHours = (payload[18] + (payload[19] << 8)) * 2;
+      this->currentStatus.poweredHours = (payload[24] + (payload[25] << 8)) * 2;
+      // Tracks like relative humidity: absolute humidity stays flat while the room heats up
+      this->currentStatus.humidity = payload[12];
       return true;
     }
 
@@ -492,6 +517,11 @@ bool DaikinController::parseResponse(ACResponse *response)
       {
         this->currentStatus.outsideTemperature = round(t * 2.0) / 2.0;
       }
+      this->currentStatus.outdoorTemp2 = round((int16_t)(payload[2] + (payload[3] << 8)) / 12.8) / 10.0;
+      this->currentStatus.outdoorTemp3 = round((int16_t)(payload[4] + (payload[5] << 8)) / 12.8) / 10.0;
+      this->currentStatus.outdoorTemp4 = round((int16_t)(payload[6] + (payload[7] << 8)) / 12.8) / 10.0;
+      this->currentStatus.pipeTemp2 = round((int16_t)(payload[24] + (payload[25] << 8)) / 12.8) / 10.0;
+      this->currentStatus.compressorLoad = payload[28] + (payload[29] << 8);
       // if ((t = (int16_t)(payload[2] + (payload[3] << 8)) / 128.0) && t < 100)
       // {
       //     //Unknown
@@ -531,12 +561,24 @@ bool DaikinController::parseResponse(ACResponse *response)
 
       return true;
     }
+    // Hour meters, low byte before each counts minutes 0-119
+    if (cmd == 0xB9 && payloadSize >= 22)
+    {
+      this->currentStatus.compressorHours = (payload[8] + (payload[9] << 8)) * 2;
+      this->currentStatus.outdoorFanHours = (payload[20] + (payload[21] << 8)) * 2;
+      this->currentStatus.compressorStage = payload[2];
+      this->currentStatus.compressorStop = payload[3];
+      if (payloadSize >= 34)
+        this->currentStatus.pipeTempDiff = round((int16_t)(payload[32] + (payload[33] << 8)) / 12.8) / 10.0;
+      return true;
+    }
     // Fan Speed & Vertical Vane (Flap)
     if (cmd == 0xBE && payloadSize >= 9)
     {
       int rpm = payload[2] + (payload[3] << 8);
       rpm = (rpm / 10) * 10; // round to nearest tenth
       this->currentStatus.fanRPM = rpm;
+      this->currentStatus.drainPump = payload[5] & 0x01;
 
       this->currentSettings.verticalVane = lookupByteMapValue(X50_VERTICALVANE_MAP, X50_VERTICALVANE, 7, payload[4]);
 
@@ -729,7 +771,31 @@ bool DaikinController::update(bool updateAll)
     res = false;
   }
 
+  if (res)
+  {
+    // Read the unit back soon instead of waiting a full sync interval
+    expectedSettings = newSettings;
+    confirmPending = true;
+    lastSyncMs = millis() - SYNC_INTEVAL + POLL_AFTER_SET_MS;
+  }
+
   return res;
+}
+
+bool DaikinController::commandConfirmed()
+{
+  if (!confirmPending)
+    return false;
+  if (strcmp(currentSettings.power, expectedSettings.power) != 0)
+    return false;
+  // Mode, fan and setpoint don't matter while the unit is off
+  if (strcmp(expectedSettings.power, "OFF") != 0 &&
+      (strcmp(currentSettings.mode, expectedSettings.mode) != 0 ||
+       strcmp(currentSettings.fan, expectedSettings.fan) != 0 ||
+       fabs(currentSettings.temperature - expectedSettings.temperature) > 0.3))
+    return false;
+  confirmPending = false;
+  return true;
 }
 
 void DaikinController::setPowerSetting(bool setting)

@@ -83,7 +83,9 @@ const String S21queryCmds[] = {
   "RL", 
   "Rd",
   "RG", //Quiet Fan
-  "FM"  //Energy Meter
+  "FM", //Energy Meter
+  "Re", //Humidity
+  "Rb"  //Demand (pull on compressor, 0-15)
   };
 
 const String S21setCmds[] = {
@@ -91,7 +93,7 @@ const String S21setCmds[] = {
   "D5"
   };
 
-const uint8_t X50queryCmds[] = {0xCA, 0xCB, 0xBD, 0xBE,0xB7}; 
+const uint8_t X50queryCmds[] = {0xCA, 0xCB, 0xBD, 0xBE, 0xB7, 0xB9};
 // const uint8_t X50queryCmds[] = {0xCA, 0xBD, 0xBE}; 
 //0xCA = Main status (power,mode,fan) /
 //0xCB = ??
@@ -99,6 +101,8 @@ const uint8_t X50queryCmds[] = {0xCA, 0xCB, 0xBD, 0xBE,0xB7};
 //0xB7 = CDU Temperature sensors/Compressor Frequency,
 //0xBE =  FAN RPM, VANE?
 //0xBA = Model Number
+//0xB9 = Operation counters (hour meters), compressor state
+//0xB0 = Outdoor unit model number (sent once, may answer "busy" while fetched from outdoor unit)
 
 class DaikinUART
 {

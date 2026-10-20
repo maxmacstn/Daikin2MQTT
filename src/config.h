@@ -64,6 +64,7 @@ const PROGMEM char* HA_counter = "mdi:counter";
 const PROGMEM char* HA_alert = "mdi:alert-circle";
 const PROGMEM char* HA_powerful = "mdi:wind-power";
 const PROGMEM char* HA_remote_off = "mdi:remote-off";
+const PROGMEM char* HA_air_filter = "mdi:air-filter";
 
 
 //Define global variables for Others settings
@@ -94,6 +95,25 @@ String ha_sensor_inside_coil_temp_config_topic;
 String ha_sensor_fan_rpm_temp_config_topic;
 String ha_sensor_comp_freq_config_topic;
 String ha_sensor_error_code_config_topic;
+String ha_binary_sensor_filter_sign_config_topic;
+String ha_sensor_filter_hours_config_topic;
+String ha_sensor_filter_hours_left_config_topic;
+String ha_sensor_outdoor_temp2_config_topic;
+String ha_sensor_outdoor_temp3_config_topic;
+String ha_sensor_outdoor_temp4_config_topic;
+String ha_sensor_humidity_config_topic;
+String ha_sensor_demand_config_topic;
+String ha_sensor_powered_hours_config_topic;
+String ha_sensor_running_hours_config_topic;
+String ha_sensor_compressor_hours_config_topic;
+String ha_sensor_outdoor_fan_hours_config_topic;
+String ha_sensor_pipe_temp2_config_topic;
+String ha_sensor_compressor_load_config_topic;
+String ha_sensor_compressor_stage_config_topic;
+String ha_sensor_outdoor_model_config_topic;
+String ha_sensor_compressor_stop_config_topic;
+String ha_sensor_pipe_temp_diff_config_topic;
+String ha_binary_sensor_drain_pump_config_topic;
 String ha_sensor_energy_meter_config_topic;
 String ha_select_vane_vertical_config_topic;
 String ha_select_vane_horizontal_config_topic;
@@ -123,6 +143,7 @@ bool _debugMode = false;
 // sketch settings
 const PROGMEM uint32_t SEND_ROOM_TEMP_INTERVAL_MS = 15000; // send MQTT every 15 seconds
 const PROGMEM uint32_t POLL_DELAY_AFTER_SET_MS = 25000; // After send command, wait at least 25 seconds for A/C to update status.
+const PROGMEM uint32_t MIN_DELAY_AFTER_SET_MS = 1000; // ...unless the unit already reports the commanded settings.
 const PROGMEM uint32_t MQTT_RETRY_INTERVAL_MS = 1000; // 1 seconds
 const PROGMEM uint32_t HP_RETRY_INTERVAL_MS = 1000; // 1 seconds
 const PROGMEM uint32_t HP_MAX_RETRIES = 10; // Double the interval between retries up to this many times, then keep retrying forever at that maximum interval.

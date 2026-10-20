@@ -33,6 +33,7 @@
 #define S21_RESPONSE_TIMEOUT 250
 
 #define SYNC_INTEVAL 10000
+#define POLL_AFTER_SET_MS 1500 // Re-read the unit this long after sending a command
 
 #define S21_BAUD_RATE 2400
 #define S21_STOP_BITS 2
@@ -83,7 +84,26 @@ struct HVACStatus
   bool operating; // if true, the heatpump is operating to reach the desired temperature
   int compressorFrequency;
   String modelName;
+  String outdoorModelName;  // X50: B0 ASCII, fetched from the outdoor unit (replies 21 B0 until ready)
   String errorCode;
+  bool filterSign;          // X50: CA[7] bit 5, cleared by filter reset on remote
+  int filterHours;          // X50: BD[14..15] x2 = hours since last filter reset
+  int filterHoursLeft;      // X50: BD[27..28] x2 = hours left until filter sign (counts down)
+  float outdoorTemp2;       // X50: B7[2..3] unconfirmed meaning
+  float outdoorTemp3;       // X50: B7[4..5] unconfirmed meaning, rises like discharge temp
+  float outdoorTemp4;       // X50: B7[6..7] unconfirmed meaning
+  int humidity;             // S21: Re, indoor humidity %
+  int demand;               // S21: Rb, how hard this unit pulls on the compressor (0-15)
+  int poweredHours;         // X50: BD[24..25] x2, counts while mains powered
+  int runningHours;         // X50: BD[18..19] x2, counts while unit is on
+  int compressorHours;      // X50: B9[8..9] x2, counts while compressor runs
+  int outdoorFanHours;      // X50: B9[20..21] x2, unconfirmed, counts slightly faster than compressor
+  float pipeTemp2;          // X50: B7[24..25] second indoor pipe thermistor
+  int compressorLoad;       // X50: B7[28..29] 0 when off, scales with frequency, unit unknown
+  bool drainPump;           // X50: BE[5], stays on ~5 min after switch off
+  int compressorStage;      // X50: B9[2] 0 idle, 2 start request, 4 starting, 5 steady, 6 ramping, 1 stopping
+  int compressorStop;       // X50: B9[3] 1 running, 2 thermo off, 6 unit switched off
+  float pipeTempDiff;       // X50: B9[32..33] unit's own B7[6..7] minus coil
 };
 
 const char X50errorCodeDivision[] = { ' ', 'A', 'C', 'E', 'H', 'F', 'J', 'L', 'P', 'U', 'M', '6', '8', '9', ' ',' '};
@@ -103,6 +123,7 @@ public:
   bool connect(HardwareSerial *serial);
   bool sync();   // Synchronize AC State to local state
   bool update(bool updateAll = false); // Update local settings to AC.
+  bool commandConfirmed(); // True once (after update) when the unit reports the commanded settings.
 
   DaikinUART *daikinUART{nullptr};
 
@@ -165,6 +186,8 @@ private:
   PendingSettings pendingSettings = {false, false, false};
 
   unsigned long lastSyncMs = 0;
+  bool confirmPending = false;
+  HVACSettings expectedSettings{"OFF", "COOL", 25.0, "AUTO", "HOLD", "HOLD"};
   bool use_RG_fan = false;
 
   SETTINGS_CHANGED_CALLBACK_SIGNATURE{nullptr};
